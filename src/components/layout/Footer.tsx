@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { ShieldCheck, Sparkles, Truck, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KineticFabric } from "@/components/ui/kinetic-particle-fabric";
@@ -14,93 +13,42 @@ export function Footer() {
   const handleSubscribe = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
-    toast.success("Subscribed to Astra Private Runway Archive", {
-      description: "You will receive early drop access and exclusive member editorial updates.",
+    toast.success("Subscribed to Astra Private Runway Club", {
+      description: "You will receive private drop codes 48 hours prior to public release.",
     });
     setEmail("");
   };
 
   return (
-    <footer className="relative bg-card/90 backdrop-blur-2xl border-t border-border/80 pt-16 pb-12 text-foreground overflow-hidden">
-      {/* Background Accent Glow */}
+    <footer className="relative w-full border-t border-border/80 pt-20 pb-12 text-foreground overflow-hidden">
+      {/* Dynamic 3D Tensor Physics Particle Mesh Background */}
+      <KineticFabric className="opacity-90 dark:opacity-80" />
+
+      {/* Ambient Gradient Softeners for pristine text readability */}
+      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/75 to-transparent pointer-events-none" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-gradient-to-b from-[#8D43F4]/15 to-transparent blur-3xl pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
-        {/* Interactive Kinetic 3D Physics Mesh at Footer Base */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono text-accent uppercase tracking-widest font-semibold">
-              Interactive Physics Lab
-            </span>
-            <span className="text-[11px] font-mono text-muted-foreground uppercase">
-              Tensor 3D Simulation
-            </span>
-          </div>
-          <KineticFabric headline="ASTRA" tagline="TENSOR · 3D DYNAMICS" />
-        </div>
-
-        {/* Brand Perks Strip */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 pb-12 border-b border-border">
-          <div className="flex items-center gap-3.5">
-            <div className="h-11 w-11 rounded-2xl bg-accent/15 text-accent flex items-center justify-center flex-shrink-0">
-              <Truck className="h-5 w-5" />
-            </div>
-            <div>
-              <h4 className="font-semibold text-sm">Complimentary Global Express</h4>
-              <p className="text-xs text-muted-foreground mt-0.5">Air freight dispatch in 24 hours</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3.5">
-            <div className="h-11 w-11 rounded-2xl bg-accent/15 text-accent flex items-center justify-center flex-shrink-0">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h4 className="font-semibold text-sm">100% Certified Authentic</h4>
-              <p className="text-xs text-muted-foreground mt-0.5">Individually serialized NFC tags</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3.5">
-            <div className="h-11 w-11 rounded-2xl bg-accent/15 text-accent flex items-center justify-center flex-shrink-0">
-              <RotateCcw className="h-5 w-5" />
-            </div>
-            <div>
-              <h4 className="font-semibold text-sm">30-Day Bespoke Exchange</h4>
-              <p className="text-xs text-muted-foreground mt-0.5">Hassle-free size & style swaps</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3.5">
-            <div className="h-11 w-11 rounded-2xl bg-accent/15 text-accent flex items-center justify-center flex-shrink-0">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div>
-              <h4 className="font-semibold text-sm">Couture Craftsmanship</h4>
-              <p className="text-xs text-muted-foreground mt-0.5">520 GSM silk & carbon sole builds</p>
-            </div>
-          </div>
-        </div>
-
+      {/* Main Foreground Content */}
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
         {/* Main Footer Links & Newsletter */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-10 py-4">
           {/* Brand Info */}
           <div className="md:col-span-2 space-y-4">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-[#8D43F4] to-cyan-400 flex items-center justify-center text-white font-black text-base shadow-md shadow-[#8D43F4]/30">
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-[#8D43F4] to-cyan-400 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-[#8D43F4]/30">
                 A
               </div>
-              <span className="font-extrabold text-2xl tracking-tighter">ASTRA</span>
+              <span className="font-extrabold text-2xl sm:text-3xl tracking-tighter">ASTRA</span>
             </div>
             <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-sm">
               Transcendent street-couture and hyper-engineered footwear. Merging artisanal raw silk tailoring with aerodynamic kinetic physics.
             </p>
-            <div className="text-xs font-mono text-muted-foreground">
+            <div className="text-xs font-mono tracking-wider text-muted-foreground">
               PARIS · TOKYO · NEW YORK · MILAN
             </div>
           </div>
 
-          {/* Quick Links */}
+          {/* Collections */}
           <div>
             <h4 className="text-xs font-mono tracking-widest uppercase text-accent font-semibold mb-4">
               Collections
@@ -129,6 +77,7 @@ export function Footer() {
             </ul>
           </div>
 
+          {/* Client Concierge */}
           <div>
             <h4 className="text-xs font-mono tracking-widest uppercase text-accent font-semibold mb-4">
               Client Concierge
@@ -157,7 +106,7 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* VIP Newsletter */}
+          {/* VIP Drop Access */}
           <div>
             <h4 className="text-xs font-mono tracking-widest uppercase text-accent font-semibold mb-3">
               Private Drop Access
@@ -165,13 +114,13 @@ export function Footer() {
             <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
               Receive private invitation codes for limited drop sneakers 48 hours prior to public release.
             </p>
-            <form onSubmit={handleSubscribe} className="space-y-2">
+            <form onSubmit={handleSubscribe} className="space-y-2.5">
               <Input
                 type="email"
                 placeholder="vip@astra.luxury"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-10 text-xs bg-background"
+                className="h-10 text-xs bg-background/80 backdrop-blur-md"
                 required
               />
               <Button type="submit" variant="violet" size="sm" className="w-full font-semibold">
@@ -182,12 +131,12 @@ export function Footer() {
         </div>
 
         {/* Bottom Rights */}
-        <div className="pt-8 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
+        <div className="pt-8 border-t border-border/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
           <p>© 2026 ASTRA COUTURE & FOOTWEAR. All rights reserved.</p>
           <div className="flex items-center gap-6">
-            <span className="hover:text-foreground cursor-pointer">Privacy Policy</span>
-            <span className="hover:text-foreground cursor-pointer">Terms of Service</span>
-            <span className="hover:text-foreground cursor-pointer">NFC Verification</span>
+            <span className="hover:text-foreground cursor-pointer transition-colors">Privacy Policy</span>
+            <span className="hover:text-foreground cursor-pointer transition-colors">Terms of Service</span>
+            <span className="hover:text-foreground cursor-pointer transition-colors">NFC Verification</span>
           </div>
         </div>
       </div>

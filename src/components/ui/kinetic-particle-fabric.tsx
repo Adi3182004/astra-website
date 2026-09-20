@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Play, Pause, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Vector3 {
@@ -26,20 +25,16 @@ interface StructuralConstraint {
 }
 
 export interface KineticFabricProps {
-  headline?: string;
-  tagline?: string;
   className?: string;
+  isBackground?: boolean;
 }
 
 export function KineticFabric({
-  headline = "ASTRA",
-  tagline = "TENSOR · 3D FABRIC SIMULATION",
   className = "",
+  isBackground = true,
 }: KineticFabricProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  const [isRunning, setIsRunning] = useState(true);
   const isVisibleRef = useRef(true);
 
   const pointerRef = useRef({
@@ -53,7 +48,7 @@ export function KineticFabric({
     targetAngleY: 0.0,
     angleX: 0.12,
     angleY: 0.0,
-    radius: 180,
+    radius: 200,
     isDown: false,
     shockwaves: [] as { x: number; y: number; radius: number; maxRadius: number; strength: number }[],
   });
@@ -66,9 +61,9 @@ export function KineticFabric({
     const { width, height } = dimensionsRef.current;
     if (width === 0 || height === 0) return;
 
-    const spacing = 40;
-    const cols = Math.ceil((width * 1.1) / spacing) + 1;
-    const rows = Math.ceil((height * 1.1) / spacing) + 1;
+    const spacing = 42;
+    const cols = Math.ceil((width * 1.15) / spacing) + 1;
+    const rows = Math.ceil((height * 1.15) / spacing) + 1;
 
     const nodes: PhysicsNode[] = [];
     const links: StructuralConstraint[] = [];
@@ -121,12 +116,11 @@ export function KineticFabric({
     const container = containerRef.current;
     if (!container) return;
 
-    // Pause animation when scrolled out of view to ensure maximum FPS
     const observer = new IntersectionObserver(
       (entries) => {
-        isVisibleRef.current = entries[0].isIntersecting;
+        isVisibleRef.current = entries[0]?.isIntersecting ?? true;
       },
-      { threshold: 0.1 }
+      { threshold: 0.05 }
     );
     observer.observe(container);
 
@@ -144,6 +138,7 @@ export function KineticFabric({
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const rect = entry.contentRect;
+        if (rect.width === 0 || rect.height === 0) continue;
         const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
 
         dimensionsRef.current = { width: rect.width, height: rect.height };
@@ -173,13 +168,18 @@ export function KineticFabric({
     let time = 0;
 
     const loop = () => {
-      if (!isRunning || !isVisibleRef.current) {
+      if (!isVisibleRef.current) {
         animId = requestAnimationFrame(loop);
         return;
       }
 
-      time += 0.018;
+      time += 0.016;
       const { width, height } = dimensionsRef.current;
+      if (width === 0 || height === 0) {
+        animId = requestAnimationFrame(loop);
+        return;
+      }
+
       const nodes = nodesRef.current;
       const links = linksRef.current;
       const pointer = pointerRef.current;
@@ -200,8 +200,7 @@ export function KineticFabric({
       const sinY = Math.sin(pointer.angleY);
 
       const isDark = document.documentElement.classList.contains("dark");
-      const bgColor = isDark ? "#09090b" : "#fbfbfe";
-      const strokeColor = isDark ? "255, 255, 255" : "0, 0, 0";
+      const bgColor = isDark ? "#08080a" : "#faf9fc";
 
       ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, width, height);
@@ -233,7 +232,7 @@ export function KineticFabric({
         n.curr.y += vy;
         n.curr.z += vz;
 
-        const fluidZ = Math.sin(n.base.x * 0.008 + time) * 14 + Math.cos(n.base.y * 0.01 + time * 1.1) * 10;
+        const fluidZ = Math.sin(n.base.x * 0.007 + time) * 16 + Math.cos(n.base.y * 0.009 + time * 1.1) * 12;
 
         n.curr.x += (n.base.x - n.curr.x) * 0.035;
         n.curr.y += (n.base.y - n.curr.y) * 0.035;
@@ -242,7 +241,7 @@ export function KineticFabric({
         n.excitation *= 0.92;
       }
 
-      const fov = 600;
+      const fov = 650;
       const cx = width / 2;
       const cy = height / 2;
 
@@ -255,7 +254,7 @@ export function KineticFabric({
 
         const rx2 = rx1;
         const ry2 = ry1 * cosX - rz1 * sinX;
-        const rz2 = ry1 * sinX + rz1 * cosX + 440;
+        const rz2 = ry1 * sinX + rz1 * cosX + 460;
 
         const scale = fov / Math.max(1, rz2);
         n.proj.x = cx + rx2 * scale;
@@ -295,7 +294,7 @@ export function KineticFabric({
         }
       }
 
-      // Relaxation pass (2 passes for speed)
+      // Relaxation pass
       for (let p = 0; p < 2; p++) {
         for (let i = 0; i < links.length; i++) {
           const link = links[i];
@@ -332,13 +331,13 @@ export function KineticFabric({
 
         if (isExcited) {
           const glow = Math.max(na.excitation, nb.excitation);
-          ctx.strokeStyle = `rgba(168, 85, 247, ${Math.min(1, 0.45 + glow * 0.55)})`;
-          ctx.lineWidth = (0.9 + glow * 1.4) * avgScale;
+          ctx.strokeStyle = `rgba(168, 85, 247, ${Math.min(0.9, 0.45 + glow * 0.45)})`;
+          ctx.lineWidth = (0.9 + glow * 1.3) * avgScale;
         } else {
           ctx.strokeStyle = isDark
-            ? `rgba(255, 255, 255, ${0.08 * avgScale})`
+            ? `rgba(255, 255, 255, ${0.07 * avgScale})`
             : `rgba(141, 67, 244, ${0.12 * avgScale})`;
-          ctx.lineWidth = 0.7 * avgScale;
+          ctx.lineWidth = 0.65 * avgScale;
         }
 
         ctx.beginPath();
@@ -352,128 +351,75 @@ export function KineticFabric({
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isRunning]);
+  }, []);
 
-  const handlePointerMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const container = containerRef.current;
-    if (!container) return;
+  // Global mouse tracking over container/parent
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
 
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
 
-    pointerRef.current.x = x;
-    pointerRef.current.y = y;
+      if (x >= -50 && x <= rect.width + 50 && y >= -50 && y <= rect.height + 50) {
+        pointerRef.current.x = x;
+        pointerRef.current.y = y;
 
-    const normX = (x / rect.width - 0.5) * 2;
-    const normY = (y / rect.height - 0.5) * 2;
-    pointerRef.current.targetAngleY = normX * 0.3;
-    pointerRef.current.targetAngleX = -normY * 0.2 + 0.12;
-  };
+        const normX = (x / rect.width - 0.5) * 2;
+        const normY = (y / rect.height - 0.5) * 2;
+        pointerRef.current.targetAngleY = normX * 0.25;
+        pointerRef.current.targetAngleX = -normY * 0.18 + 0.12;
+      } else {
+        pointerRef.current.x = -2000;
+        pointerRef.current.y = -2000;
+      }
+    };
 
-  const handlePointerDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    const container = containerRef.current;
-    if (!container) return;
+    const handleGlobalClick = (e: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
 
-    pointerRef.current.isDown = true;
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
 
-    pointerRef.current.shockwaves.push({
-      x,
-      y,
-      radius: 10,
-      maxRadius: 360,
-      strength: 1.0,
-    });
-  };
+      if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+        pointerRef.current.shockwaves.push({
+          x,
+          y,
+          radius: 10,
+          maxRadius: 400,
+          strength: 1.0,
+        });
+      }
+    };
 
-  const handlePointerUp = () => {
-    pointerRef.current.isDown = false;
-  };
+    window.addEventListener("mousemove", handleGlobalMouseMove, { passive: true });
+    window.addEventListener("click", handleGlobalClick, { passive: true });
 
-  const handlePointerLeave = () => {
-    pointerRef.current.x = -2000;
-    pointerRef.current.y = -2000;
-    pointerRef.current.isDown = false;
-    pointerRef.current.targetAngleX = 0.12;
-    pointerRef.current.targetAngleY = 0;
-  };
-
-  const triggerImpulse = () => {
-    const { width, height } = dimensionsRef.current;
-    pointerRef.current.shockwaves.push({
-      x: width / 2,
-      y: height / 2,
-      radius: 10,
-      maxRadius: Math.max(width, height) * 0.8,
-      strength: 1.2,
-    });
-  };
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+      window.removeEventListener("click", handleGlobalClick);
+    };
+  }, []);
 
   return (
     <div
       ref={containerRef}
-      onMouseMove={handlePointerMove}
-      onMouseDown={handlePointerDown}
-      onMouseUp={handlePointerUp}
-      onMouseLeave={handlePointerLeave}
       className={cn(
-        "group relative flex h-[380px] sm:h-[440px] w-full select-none flex-col justify-between overflow-hidden rounded-3xl border border-border/80 bg-card/60 shadow-xl transition-all",
+        "absolute inset-0 w-full h-full pointer-events-none overflow-hidden select-none",
         className
       )}
     >
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 block h-full w-full cursor-crosshair"
+        className="absolute inset-0 block h-full w-full pointer-events-none"
       />
-
-      <div className="relative z-20 flex h-full w-full flex-col justify-between p-6 md:p-8 pointer-events-none">
-        <header className="flex w-full items-center justify-between font-mono text-[11px] text-muted-foreground pointer-events-auto">
-          <div className="flex items-center gap-3">
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#8D43F4] opacity-75" />
-              <span className="relative inline-flex size-2 rounded-full bg-[#8D43F4]" />
-            </span>
-            <span className="font-semibold tracking-wider text-foreground uppercase text-[10px]">
-              {tagline}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={triggerImpulse}
-              className="flex items-center gap-1.5 rounded-xl border border-border bg-card/80 px-3 py-1.5 backdrop-blur-md transition-all hover:bg-accent hover:text-white"
-              title="Trigger Shockwave"
-            >
-              <Sparkles className="size-3 text-accent" />
-              <span className="hidden sm:inline font-mono text-[10px]">PULSE</span>
-            </button>
-
-            <button
-              onClick={() => setIsRunning((prev) => !prev)}
-              className="flex items-center gap-1.5 rounded-xl border border-border bg-card/80 px-3 py-1.5 backdrop-blur-md transition-all hover:bg-accent hover:text-white"
-            >
-              {isRunning ? <Pause className="size-3" /> : <Play className="size-3" />}
-              <span className="font-mono text-[10px]">{isRunning ? "FREEZE" : "RUN"}</span>
-            </button>
-          </div>
-        </header>
-
-        <main className="pointer-events-none flex flex-col items-center justify-center text-center my-auto">
-          <h3 className="font-mono text-4xl sm:text-6xl font-black tracking-tighter uppercase text-foreground opacity-90">
-            {headline}
-          </h3>
-          <p className="mt-2 text-[11px] font-mono tracking-widest text-muted-foreground uppercase">
-            Interactive Footwear Physics Mesh
-          </p>
-        </main>
-
-        <div />
-      </div>
     </div>
   );
 }
 
 export default KineticFabric;
+
