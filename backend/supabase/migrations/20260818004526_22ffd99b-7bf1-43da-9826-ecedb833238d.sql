@@ -1,0 +1,1 @@
+CREATE POLICY "Staff can view all wishlists" ON public.wishlists FOR SELECT TO authenticated USING (public.is_staff(auth.uid()));

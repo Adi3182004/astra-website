@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRIORA BY KP — Premium Handcrafted Jewelry</title>
+  <meta name="description"
+    content="PRIORA BY KP — Discover exquisite handcrafted jewelry. Earrings, bracelets, and necklaces designed with elegance and craftsmanship." />
+  <meta name="author" content="PRIORA BY KP" />
+  <link rel="icon" href="/favicon.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <meta name="theme-color" content="#FAD1E0" />
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
+
+  <meta property="og:title" content="PRIORA BY KP — Premium Handcrafted Jewelry" />
+  <meta property="og:description"
+    content="Discover exquisite handcrafted jewelry designed with elegance and craftsmanship." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+    }
+
+    body {
+      background: #FFF4F8;
+    }
+
+    .priora-initial-skel {
+      min-height: 100vh;
+      width: 100%;
+      overflow: hidden;
+      background-color: #FFF4F8;
+      background-image:
+        linear-gradient(rgba(245, 211, 223, 0.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(245, 211, 223, 0.16) 1px, transparent 1px),
+        radial-gradient(circle at 18% 16%,
+          rgba(250, 199, 216, 0.3),
+          transparent 28%),
+        radial-gradient(circle at 84% 72%,
+          rgba(253, 230, 238, 0.5),
+          transparent 32%);
+      background-size:
+        28px 28px,
+        28px 28px,
+        auto,
+        auto;
+      background-position:
+        0 0,
+        0 0,
+        center,
+        center;
+      display: flex;
+      flex-direction: column;
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        Helvetica,
+        Arial,
+        sans-serif;
+      color: #3D2A25;
+    }
+
+    .ps-shimmer {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(105deg,
+          #F9C7D8 0%,
+          #FAD1E0 28%,
+          #FFEAF1 50%,
+          #FAD1E0 72%,
+          #F9C7D8 100%);
+      background-size: 240% 100%;
+      animation: psShimmerAnim 2s infinite ease-in-out;
+    }
+
+    .ps-shimmer::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg,
+          transparent 22%,
+          rgba(255, 255, 255, 0.62) 50%,
+          transparent 78%);
+      transform: translateX(-120%);
+      animation: psGlowAnim 2.7s infinite ease-in-out;
+    }
+
+    @keyframes psShimmerAnim {
+      0% {
+        background-position: 130% 0;
+      }
+
+      50% {
+        background-position: 0% 0;
+      }
+
+      100% {
+        background-position: -130% 0;
+      }
+    }
+
+    @keyframes psGlowAnim {
+      0% {
+        transform: translateX(-120%);
+      }
+
+      55%,
+      100% {
+        transform: translateX(120%);
+      }
+    }
+
+    .ps-topbar {
+      width: 100%;
+      height: 34px;
+      flex-shrink: 0;
+      background: linear-gradient(90deg,
+          #E06A8B 0%,
+          #E87596 25%,
+          #D95E80 50%,
+          #E87596 75%,
+          #E06A8B 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(224, 106, 139, 0.15);
+    }
+
+    .ps-topbar::before {
+      content: "";
+      position: absolute;
+      width: 280px;
+      height: 90px;
+      top: -65px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      filter: blur(15px);
+    }
+
+    .ps-topbar-inner {
+      width: 190px;
+      height: 8px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.72);
+      position: relative;
+      z-index: 1;
+    }
+
+    .ps-header {
+      width: 100%;
+      max-width: 1320px;
+      height: 74px;
+      flex-shrink: 0;
+      margin: 0 auto;
+      padding: 0 28px;
+      background: rgba(255, 244, 248, 0.95);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-bottom: 1px solid #F5D3DF;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 20px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .ps-header::after {
+      content: "";
+      position: absolute;
+      width: 86px;
+      height: 2px;
+      bottom: -1px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #F9C7D8;
+    }
+
+    .ps-header>.ps-icon:first-child {
+      justify-self: start;
+    }
+
+    .ps-logo {
+      width: 150px;
+      height: 25px;
+      border-radius: 5px;
+      justify-self: center;
+    }
+
+    .ps-icons {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ps-icon {
+      width: 34px;
+      height: 34px;
+      flex-shrink: 0;
+      border-radius: 9999px;
+      border: 1px solid #F5D3DF;
+    }
+
+    .ps-hero {
+      width: calc(100% - 40px);
+      max-width: 1240px;
+      height: min(59vh, 560px);
+      min-height: 320px;
+      margin: 20px auto 24px;
+      border-radius: 28px;
+      border: 1px solid rgba(245, 211, 223, 0.75);
+      box-shadow:
+        0 18px 48px rgba(224, 106, 139, 0.1),
+        0 4px 14px rgba(224, 106, 139, 0.06);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding: 44px 24px;
+      background:
+        radial-gradient(ellipse at 50% 42%,
+          rgba(255, 255, 255, 0.4) 0%,
+          rgba(255, 234, 241, 0.22) 25%,
+          transparent 50%),
+        radial-gradient(circle at 18% 35%,
+          rgba(249, 199, 216, 0.5),
+          transparent 34%),
+        radial-gradient(circle at 82% 28%,
+          rgba(224, 106, 139, 0.16),
+          transparent 30%),
+        linear-gradient(135deg,
+          #F9C7D8 0%,
+          #FAD1E0 35%,
+          #F6BBD0 52%,
+          #FAD1E0 72%,
+          #F9C7D8 100%);
+    }
+
+    .ps-hero::before {
+      content: "";
+      position: absolute;
+      width: min(56vw, 590px);
+      height: min(56vw, 590px);
+      top: -46%;
+      left: 50%;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      box-shadow:
+        0 0 0 28px rgba(255, 255, 255, 0.11),
+        0 0 0 62px rgba(255, 255, 255, 0.075),
+        0 0 0 105px rgba(255, 255, 255, 0.045);
+    }
+
+    .ps-hero::after {
+      content: "";
+      position: absolute;
+      width: 230px;
+      height: 230px;
+      top: 8%;
+      right: 8%;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.22);
+      filter: blur(32px);
+    }
+
+    .ps-hero-title {
+      width: min(60%, 420px);
+      height: 34px;
+      margin-bottom: 14px;
+      border-radius: 6px;
+      position: relative;
+      z-index: 1;
+      background: linear-gradient(105deg,
+          rgba(255, 255, 255, 0.46),
+          rgba(255, 255, 255, 0.72),
+          rgba(255, 255, 255, 0.46));
+    }
+
+    .ps-hero-btn {
+      width: 138px;
+      height: 39px;
+      border-radius: 9999px;
+      position: relative;
+      z-index: 1;
+      background: linear-gradient(105deg,
+          #D95E80,
+          #E06A8B,
+          #D95E80);
+      box-shadow:
+        0 7px 20px rgba(224, 106, 139, 0.18),
+        inset 0 1px 1px rgba(255, 255, 255, 0.18);
+    }
+
+    .ps-strip {
+      width: 100%;
+      min-height: 45px;
+      padding: 9px 18px;
+      background: rgba(251, 225, 234, 0.72);
+      border-top: 1px solid #F5D3DF;
+      border-bottom: 1px solid #F5D3DF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 40px;
+      overflow: hidden;
+    }
+
+    .ps-strip-item {
+      width: 125px;
+      height: 9px;
+      flex-shrink: 0;
+      border-radius: 9999px;
+      background: #F9C7D8;
+    }
+
+    .ps-cats {
+      width: 100%;
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 30px 24px 28px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: clamp(20px, 4vw, 52px);
+      overflow: hidden;
+    }
+
+    .ps-cat-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 9px;
+      flex-shrink: 0;
+    }
+
+    .ps-cat {
+      width: 78px;
+      height: 78px;
+      flex-shrink: 0;
+      border-radius: 9999px;
+      border: 2px solid #F5D3DF;
+      box-shadow:
+        0 5px 16px rgba(224, 106, 139, 0.07),
+        inset 0 0 0 5px rgba(255, 255, 255, 0.34);
+    }
+
+    .ps-cat-label {
+      width: 56px;
+      height: 9px;
+      border-radius: 9999px;
+    }
+
+    .ps-section-head {
+      width: 100%;
+      max-width: 1240px;
+      margin: 0 auto 18px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .ps-section-title {
+      width: 190px;
+      height: 25px;
+      border-radius: 6px;
+    }
+
+    .ps-section-link {
+      width: 68px;
+      height: 12px;
+      border-radius: 9999px;
+    }
+
+    .ps-grid {
+      width: 100%;
+      max-width: 1240px;
+      margin: 0 auto 50px;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .ps-card {
+      min-width: 0;
+      padding: 11px;
+      background: #FFEAF1;
+      border: 1px solid #F5D3DF;
+      border-radius: 20px;
+      box-shadow:
+        0 8px 24px rgba(224, 106, 139, 0.05),
+        0 2px 8px rgba(224, 106, 139, 0.025);
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+    }
+
+    .ps-card-img {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 15px;
+      background:
+        radial-gradient(circle at 50% 42%,
+          rgba(255, 255, 255, 0.6),
+          transparent 35%),
+        linear-gradient(135deg,
+          #FAD1E0,
+          #FBE1EA);
+    }
+
+    .ps-card-title {
+      width: 82%;
+      height: 14px;
+      border-radius: 9999px;
+    }
+
+    .ps-card-price {
+      width: 46%;
+      height: 13px;
+      border-radius: 9999px;
+    }
+
+    @media (max-width: 767px) {
+      .priora-initial-skel {
+        background-size:
+          22px 22px,
+          22px 22px,
+          auto,
+          auto;
+      }
+
+      .ps-topbar {
+        height: 30px;
+      }
+
+      .ps-topbar-inner {
+        width: 150px;
+        height: 7px;
+      }
+
+      .ps-header {
+        height: 62px;
+        padding: 0 14px;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 10px;
+      }
+
+      .ps-logo {
+        width: 122px;
+        height: 21px;
+      }
+
+      .ps-icon,
+      .ps-header>.ps-icon:first-child {
+        width: 30px;
+        height: 30px;
+      }
+
+      .ps-icons {
+        gap: 7px;
+      }
+
+      .ps-hero {
+        width: calc(100% - 20px);
+        height: 56vh;
+        min-height: 285px;
+        max-height: 440px;
+        margin: 12px auto 16px;
+        border-radius: 21px;
+        padding: 28px 18px;
+      }
+
+      .ps-hero::before {
+        width: 330px;
+        height: 330px;
+        top: -20%;
+      }
+
+      .ps-hero::after {
+        width: 140px;
+        height: 140px;
+        top: 10%;
+        right: -10%;
+      }
+
+      .ps-hero-title {
+        width: 70%;
+        height: 26px;
+        margin-bottom: 12px;
+      }
+
+      .ps-hero-btn {
+        width: 116px;
+        height: 34px;
+      }
+
+      .ps-strip {
+        min-height: 40px;
+        padding: 8px 14px;
+        justify-content: flex-start;
+        gap: 28px;
+      }
+
+      .ps-strip-item {
+        width: 100px;
+        height: 8px;
+      }
+
+      .ps-cats {
+        justify-content: flex-start;
+        gap: 20px;
+        padding: 24px 16px 22px;
+        overflow: hidden;
+      }
+
+      .ps-cat {
+        width: 64px;
+        height: 64px;
+      }
+
+      .ps-cat-label {
+        width: 48px;
+        height: 8px;
+      }
+
+      .ps-section-head {
+        padding: 0 16px;
+        margin-bottom: 14px;
+      }
+
+      .ps-section-title {
+        width: 148px;
+        height: 21px;
+      }
+
+      .ps-section-link {
+        width: 55px;
+        height: 10px;
+      }
+
+      .ps-grid {
+        padding: 0 12px;
+        gap: 11px;
+        margin-bottom: 36px;
+      }
+
+      .ps-card {
+        padding: 8px;
+        border-radius: 15px;
+        gap: 8px;
+      }
+
+      .ps-card-img {
+        border-radius: 11px;
+      }
+
+      .ps-card-title {
+        height: 12px;
+      }
+
+      .ps-card-price {
+        height: 11px;
+      }
+    }
+
+    @media (min-width: 768px) {
+      .ps-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 20px;
+      }
+    }
+
+    @media (min-width: 768px) and (max-width: 1023px) {
+      .ps-header {
+        padding: 0 22px;
+      }
+
+      .ps-hero {
+        height: 48vh;
+        min-height: 300px;
+        width: calc(100% - 32px);
+      }
+
+      .ps-cats {
+        gap: 28px;
+      }
+
+      .ps-cat {
+        width: 70px;
+        height: 70px;
+      }
+
+      .ps-grid {
+        padding: 0 18px;
+        gap: 15px;
+      }
+
+      .ps-card {
+        padding: 9px;
+        border-radius: 17px;
+      }
+    }
+
+    @media (min-width: 1200px) {
+      .ps-header {
+        height: 80px;
+      }
+
+      .ps-hero {
+        margin-top: 22px;
+        margin-bottom: 26px;
+      }
+
+      .ps-cats {
+        padding-top: 36px;
+        padding-bottom: 32px;
+      }
+
+      .ps-cat {
+        width: 82px;
+        height: 82px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      .ps-shimmer,
+      .ps-shimmer::after {
+        animation: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root">
+    <div class="priora-initial-skel">
+      <div class="ps-topbar">
+        <div class="ps-topbar-inner"></div>
+      </div>
+
+      <div class="ps-header">
+        <div class="ps-icon ps-shimmer"></div>
+
+        <div class="ps-logo ps-shimmer"></div>
+
+        <div class="ps-icons">
+          <div class="ps-icon ps-shimmer"></div>
+          <div class="ps-icon ps-shimmer"></div>
+        </div>
+      </div>
+
+      <div class="ps-hero ps-shimmer">
+        <div class="ps-hero-title ps-shimmer"></div>
+        <div class="ps-hero-btn ps-shimmer"></div>
+      </div>
+
+      <div class="ps-strip">
+        <div class="ps-strip-item ps-shimmer"></div>
+        <div class="ps-strip-item ps-shimmer"></div>
+        <div class="ps-strip-item ps-shimmer"></div>
+      </div>
+
+      <div class="ps-cats">
+        <div class="ps-cat-wrap">
+          <div class="ps-cat ps-shimmer"></div>
+          <div class="ps-cat-label ps-shimmer"></div>
+        </div>
+
+        <div class="ps-cat-wrap">
+          <div class="ps-cat ps-shimmer"></div>
+          <div class="ps-cat-label ps-shimmer"></div>
+        </div>
+
+        <div class="ps-cat-wrap">
+          <div class="ps-cat ps-shimmer"></div>
+          <div class="ps-cat-label ps-shimmer"></div>
+        </div>
+
+        <div class="ps-cat-wrap">
+          <div class="ps-cat ps-shimmer"></div>
+          <div class="ps-cat-label ps-shimmer"></div>
+        </div>
+
+        <div class="ps-cat-wrap">
+          <div class="ps-cat ps-shimmer"></div>
+          <div class="ps-cat-label ps-shimmer"></div>
+        </div>
+      </div>
+
+      <div class="ps-section-head">
+        <div class="ps-section-title ps-shimmer"></div>
+        <div class="ps-section-link ps-shimmer"></div>
+      </div>
+
+      <div class="ps-grid">
+        <div class="ps-card">
+          <div class="ps-card-img ps-shimmer"></div>
+          <div class="ps-card-title ps-shimmer"></div>
+          <div class="ps-card-price ps-shimmer"></div>
+        </div>
+
+        <div class="ps-card">
+          <div class="ps-card-img ps-shimmer"></div>
+          <div class="ps-card-title ps-shimmer"></div>
+          <div class="ps-card-price ps-shimmer"></div>
+        </div>
+
+        <div class="ps-card">
+          <div class="ps-card-img ps-shimmer"></div>
+          <div class="ps-card-title ps-shimmer"></div>
+          <div class="ps-card-price ps-shimmer"></div>
+        </div>
+
+        <div class="ps-card">
+          <div class="ps-card-img ps-shimmer"></div>
+          <div class="ps-card-title ps-shimmer"></div>
+          <div class="ps-card-price ps-shimmer"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>

@@ -1,0 +1,919 @@
+
+-- ==================== 20260729065624_b19074a8-18dd-452b-98f6-b14839229a77.sql ====================
+
+-- Enums
+CREATE TYPE public.app_role AS ENUM ('admin', 'user');
+CREATE TYPE public.order_status AS ENUM ('new','confirmed','shipped','delivered','cancelled');
+CREATE TYPE public.banner_position AS ENUM ('hero','strip','collection');
+
+-- Utility: updated_at trigger fn
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
+
+-- profiles
+CREATE TABLE public.profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  full_name text,
+  phone text,
+  email text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.profiles TO authenticated;
+GRANT ALL ON public.profiles TO service_role;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own profile read" ON public.profiles FOR SELECT TO authenticated USING (auth.uid() = id);
+CREATE POLICY "own profile write" ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
+CREATE POLICY "own profile insert" ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+CREATE TRIGGER profiles_updated BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- user_roles
+CREATE TABLE public.user_roles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role public.app_role NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, role)
+);
+GRANT SELECT ON public.user_roles TO authenticated;
+GRANT ALL ON public.user_roles TO service_role;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "read own roles" ON public.user_roles FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+-- has_role security definer
+CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role public.app_role)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id=_user_id AND role=_role);
+$$;
+
+-- Trigger to create profile + assign admin for our email
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name'))
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'user') ON CONFLICT DO NOTHING;
+  IF lower(NEW.email) = 'adi31082004@gmail.com' THEN
+    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin') ON CONFLICT DO NOTHING;
+  END IF;
+  RETURN NEW;
+END; $$;
+
+CREATE TRIGGER on_auth_user_created
+AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- categories
+CREATE TABLE public.categories (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  slug text NOT NULL UNIQUE,
+  image_url text,
+  sort_order int NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT ON public.categories TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.categories TO authenticated;
+GRANT ALL ON public.categories TO service_role;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read categories" ON public.categories FOR SELECT USING (true);
+CREATE POLICY "admin write categories" ON public.categories FOR ALL TO authenticated USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
+CREATE TRIGGER categories_updated BEFORE UPDATE ON public.categories FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- products
+CREATE TABLE public.products (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  slug text NOT NULL UNIQUE,
+  description text,
+  price numeric(10,2) NOT NULL DEFAULT 0,
+  compare_at_price numeric(10,2),
+  category_id uuid REFERENCES public.categories(id) ON DELETE SET NULL,
+  stock int NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  is_featured boolean NOT NULL DEFAULT false,
+  sort_order int NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT ON public.products TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.products TO authenticated;
+GRANT ALL ON public.products TO service_role;
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read products" ON public.products FOR SELECT USING (true);
+CREATE POLICY "admin write products" ON public.products FOR ALL TO authenticated USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
+CREATE TRIGGER products_updated BEFORE UPDATE ON public.products FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- product_images
+CREATE TABLE public.product_images (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+  url text NOT NULL,
+  sort_order int NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT ON public.product_images TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.product_images TO authenticated;
+GRANT ALL ON public.product_images TO service_role;
+ALTER TABLE public.product_images ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read images" ON public.product_images FOR SELECT USING (true);
+CREATE POLICY "admin write images" ON public.product_images FOR ALL TO authenticated USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
+
+-- banners
+CREATE TABLE public.banners (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text,
+  subtitle text,
+  image_url text NOT NULL,
+  cta_label text,
+  cta_link text,
+  position public.banner_position NOT NULL DEFAULT 'hero',
+  is_active boolean NOT NULL DEFAULT true,
+  sort_order int NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT ON public.banners TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.banners TO authenticated;
+GRANT ALL ON public.banners TO service_role;
+ALTER TABLE public.banners ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read banners" ON public.banners FOR SELECT USING (true);
+CREATE POLICY "admin write banners" ON public.banners FOR ALL TO authenticated USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
+CREATE TRIGGER banners_updated BEFORE UPDATE ON public.banners FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- orders
+CREATE TABLE public.orders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  contact_name text NOT NULL,
+  phone text NOT NULL,
+  email text,
+  address text,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb,
+  subtotal numeric(10,2) NOT NULL DEFAULT 0,
+  status public.order_status NOT NULL DEFAULT 'new',
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.orders TO authenticated;
+GRANT INSERT ON public.orders TO anon;
+GRANT ALL ON public.orders TO service_role;
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "read own orders" ON public.orders FOR SELECT TO authenticated USING (user_id = auth.uid() OR public.has_role(auth.uid(),'admin'));
+CREATE POLICY "insert order any" ON public.orders FOR INSERT WITH CHECK (true);
+CREATE POLICY "admin update orders" ON public.orders FOR UPDATE TO authenticated USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
+CREATE POLICY "admin delete orders" ON public.orders FOR DELETE TO authenticated USING (public.has_role(auth.uid(),'admin'));
+CREATE TRIGGER orders_updated BEFORE UPDATE ON public.orders FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- wishlists
+CREATE TABLE public.wishlists (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, product_id)
+);
+GRANT SELECT, INSERT, DELETE ON public.wishlists TO authenticated;
+GRANT ALL ON public.wishlists TO service_role;
+ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own wishlist" ON public.wishlists FOR ALL TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- site_settings singleton
+CREATE TABLE public.site_settings (
+  id int PRIMARY KEY DEFAULT 1,
+  whatsapp_number text NOT NULL DEFAULT '911234567890',
+  contact_email text NOT NULL DEFAULT 'hello@priora.com',
+  brand_tagline text NOT NULL DEFAULT 'Jewellery that reflects your Aura',
+  announcement text,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (id = 1)
+);
+GRANT SELECT ON public.site_settings TO anon, authenticated;
+GRANT INSERT, UPDATE ON public.site_settings TO authenticated;
+GRANT ALL ON public.site_settings TO service_role;
+ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read settings" ON public.site_settings FOR SELECT USING (true);
+CREATE POLICY "admin write settings" ON public.site_settings FOR ALL TO authenticated USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
+INSERT INTO public.site_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+
+-- ==================== 20260729065702_47786609-2ecd-4a2e-a5d8-2c376b6c8aad.sql ====================
+
+ALTER FUNCTION public.set_updated_at() SET search_path = public;
+
+REVOKE EXECUTE ON FUNCTION public.has_role(uuid, public.app_role) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.has_role(uuid, public.app_role) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.set_updated_at() FROM PUBLIC, anon, authenticated;
+
+-- Replace the "insert order any" WITH CHECK(true) with a narrower policy
+DROP POLICY IF EXISTS "insert order any" ON public.orders;
+CREATE POLICY "guest can insert order" ON public.orders FOR INSERT TO anon WITH CHECK (user_id IS NULL);
+CREATE POLICY "user can insert own order" ON public.orders FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid() OR user_id IS NULL);
+
+
+-- ==================== 20260810145648_2b21bf1e-4a1b-4e9b-a737-25f9cf06502c.sql ====================
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS show_stock boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS stock_prefix text,
+  ADD COLUMN IF NOT EXISTS stock_suffix text;
+
+ALTER TABLE public.categories
+  ADD COLUMN IF NOT EXISTS show_in_menu boolean NOT NULL DEFAULT true;
+
+ALTER TABLE public.site_settings
+  ADD COLUMN IF NOT EXISTS search_placeholders text[] NOT NULL DEFAULT ARRAY['Search for earrings...','Search for rings...','Search for necklaces...','Search for bracelets...'],
+  ADD COLUMN IF NOT EXISTS pincode_images text[] NOT NULL DEFAULT ARRAY[]::text[];
+
+CREATE TABLE IF NOT EXISTS public.reviews (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  author text NOT NULL,
+  rating integer NOT NULL DEFAULT 5,
+  body text NOT NULL,
+  product_id uuid REFERENCES public.products(id) ON DELETE SET NULL,
+  image_url text,
+  is_active boolean NOT NULL DEFAULT true,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT ON public.reviews TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.reviews TO authenticated;
+GRANT ALL ON public.reviews TO service_role;
+ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read reviews" ON public.reviews FOR SELECT USING (true);
+CREATE POLICY "admin write reviews" ON public.reviews FOR ALL TO authenticated USING (has_role(auth.uid(),'admin')) WITH CHECK (has_role(auth.uid(),'admin'));
+CREATE TRIGGER reviews_updated BEFORE UPDATE ON public.reviews FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TABLE IF NOT EXISTS public.site_videos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text,
+  subtitle text,
+  video_url text NOT NULL,
+  poster_url text,
+  is_active boolean NOT NULL DEFAULT true,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT ON public.site_videos TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.site_videos TO authenticated;
+GRANT ALL ON public.site_videos TO service_role;
+ALTER TABLE public.site_videos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read videos" ON public.site_videos FOR SELECT USING (true);
+CREATE POLICY "admin write videos" ON public.site_videos FOR ALL TO authenticated USING (has_role(auth.uid(),'admin')) WITH CHECK (has_role(auth.uid(),'admin'));
+CREATE TRIGGER site_videos_updated BEFORE UPDATE ON public.site_videos FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TABLE IF NOT EXISTS public.info_pages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug text NOT NULL UNIQUE,
+  title text NOT NULL,
+  content text NOT NULL DEFAULT '',
+  is_active boolean NOT NULL DEFAULT true,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT ON public.info_pages TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.info_pages TO authenticated;
+GRANT ALL ON public.info_pages TO service_role;
+ALTER TABLE public.info_pages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read info pages" ON public.info_pages FOR SELECT USING (true);
+CREATE POLICY "admin write info pages" ON public.info_pages FOR ALL TO authenticated USING (has_role(auth.uid(),'admin')) WITH CHECK (has_role(auth.uid(),'admin'));
+CREATE TRIGGER info_pages_updated BEFORE UPDATE ON public.info_pages FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ==================== 20260811002319_2c27fe0e-56d6-425b-b72d-7a520a999533.sql ====================
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS address text,
+  ADD COLUMN IF NOT EXISTS city text,
+  ADD COLUMN IF NOT EXISTS state text,
+  ADD COLUMN IF NOT EXISTS pincode text;
+
+-- ==================== 20260811010031_24d780ea-8f6c-4546-bed5-0755fb29bc81.sql ====================
+-- 1. Second admin email
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name'))
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'user') ON CONFLICT DO NOTHING;
+  IF lower(NEW.email) IN ('adi31082004@gmail.com', 'priorabykp@gmail.com', 'kshitijdevadiga03@gmail.com') THEN
+    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin') ON CONFLICT DO NOTHING;
+  END IF;
+  RETURN NEW;
+END; $function$;
+
+-- backfill for already-registered admins
+INSERT INTO public.user_roles (user_id, role)
+SELECT id, 'admin'::app_role FROM auth.users
+WHERE lower(email) IN ('adi31082004@gmail.com','priorabykp@gmail.com', 'kshitijdevadiga03@gmail.com')
+ON CONFLICT DO NOTHING;
+
+-- 2. Out of stock + media columns
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS out_of_stock boolean NOT NULL DEFAULT false;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS video_url text;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS video_url text;
+ALTER TABLE public.banners ADD COLUMN IF NOT EXISTS video_url text;
+ALTER TABLE public.reviews ADD COLUMN IF NOT EXISTS video_url text;
+ALTER TABLE public.info_pages ADD COLUMN IF NOT EXISTS hero_image_url text;
+ALTER TABLE public.info_pages ADD COLUMN IF NOT EXISTS hero_video_url text;
+
+-- 3. Realtime
+ALTER TABLE public.products REPLICA IDENTITY FULL;
+ALTER TABLE public.product_images REPLICA IDENTITY FULL;
+ALTER TABLE public.categories REPLICA IDENTITY FULL;
+ALTER TABLE public.banners REPLICA IDENTITY FULL;
+ALTER TABLE public.reviews REPLICA IDENTITY FULL;
+ALTER TABLE public.site_videos REPLICA IDENTITY FULL;
+ALTER TABLE public.info_pages REPLICA IDENTITY FULL;
+ALTER TABLE public.site_settings REPLICA IDENTITY FULL;
+
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['products','product_images','categories','banners','reviews','site_videos','info_pages','site_settings'] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+      WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = t
+    ) THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+    END IF;
+  END LOOP;
+END $$;
+
+-- ==================== 20260811010114_c0f189f3-f91c-4e33-ad87-2266c7d10086.sql ====================
+CREATE POLICY "public read media" ON storage.objects FOR SELECT TO anon, authenticated USING (bucket_id = 'media');
+CREATE POLICY "admin upload media" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'media' AND public.has_role(auth.uid(),'admin'));
+CREATE POLICY "admin update media" ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'media' AND public.has_role(auth.uid(),'admin')) WITH CHECK (bucket_id = 'media' AND public.has_role(auth.uid(),'admin'));
+CREATE POLICY "admin delete media" ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'media' AND public.has_role(auth.uid(),'admin'));
+
+-- ==================== 20260812100207_33dd1ce0-a7ea-4b38-a1c5-f99fb661ea84.sql ====================
+ALTER TABLE public.site_settings ADD COLUMN IF NOT EXISTS theme jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- ==================== 20260813013024_0633040d-4ea0-46c2-b16b-3b85406d8c40.sql ====================
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS text_style jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS text_style jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.banners ADD COLUMN IF NOT EXISTS text_style jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.reviews ADD COLUMN IF NOT EXISTS text_style jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.site_videos ADD COLUMN IF NOT EXISTS text_style jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.info_pages ADD COLUMN IF NOT EXISTS text_style jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS public.service_areas (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  pincode text NOT NULL,
+  city text NOT NULL DEFAULT '',
+  state text NOT NULL DEFAULT '',
+  delivery_days integer NOT NULL DEFAULT 4,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS service_areas_pincode_key ON public.service_areas (pincode);
+
+GRANT SELECT ON public.service_areas TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.service_areas TO authenticated;
+GRANT ALL ON public.service_areas TO service_role;
+
+ALTER TABLE public.service_areas ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "public read service areas" ON public.service_areas FOR SELECT USING (true);
+CREATE POLICY "admin write service areas" ON public.service_areas FOR ALL TO authenticated
+  USING (has_role(auth.uid(), 'admin'::app_role)) WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
+
+CREATE TRIGGER service_areas_updated BEFORE UPDATE ON public.service_areas
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+ALTER TABLE public.service_areas REPLICA IDENTITY FULL;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.service_areas;
+
+-- ==================== 20260813014641_85d2d995-79d7-455b-8175-f3fbb3ff9085.sql ====================
+ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'editor';
+
+CREATE TABLE IF NOT EXISTS public.abandoned_carts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  session_key text NOT NULL,
+  contact_name text,
+  phone text,
+  email text,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb,
+  subtotal numeric NOT NULL DEFAULT 0,
+  recovered boolean NOT NULL DEFAULT false,
+  reminded_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (session_key)
+);
+
+GRANT SELECT, INSERT, UPDATE ON public.abandoned_carts TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.abandoned_carts TO authenticated;
+GRANT ALL ON public.abandoned_carts TO service_role;
+
+ALTER TABLE public.abandoned_carts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "anyone can save a cart snapshot" ON public.abandoned_carts
+  FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+CREATE POLICY "anyone can update their own cart snapshot" ON public.abandoned_carts
+  FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "admins read abandoned carts" ON public.abandoned_carts
+  FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'::public.app_role));
+
+CREATE POLICY "admins delete abandoned carts" ON public.abandoned_carts
+  FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'::public.app_role));
+
+CREATE TRIGGER abandoned_carts_updated BEFORE UPDATE ON public.abandoned_carts
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE POLICY "admins read all roles" ON public.user_roles
+  FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'::public.app_role));
+
+CREATE POLICY "admins insert roles" ON public.user_roles
+  FOR INSERT TO authenticated WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
+
+CREATE POLICY "admins update roles" ON public.user_roles
+  FOR UPDATE TO authenticated USING (public.has_role(auth.uid(), 'admin'::public.app_role))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
+
+CREATE POLICY "admins delete roles" ON public.user_roles
+  FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'::public.app_role));
+
+GRANT INSERT, UPDATE, DELETE ON public.user_roles TO authenticated;
+
+ALTER TABLE public.abandoned_carts REPLICA IDENTITY FULL;
+
+-- ==================== 20260813014720_98aa89a4-e552-4fab-8dcd-da6ade8dc299.sql ====================
+CREATE OR REPLACE FUNCTION public.is_staff(_user_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = _user_id AND role IN ('admin'::public.app_role, 'editor'::public.app_role)
+  );
+$$;
+
+CREATE POLICY "editors write products" ON public.products
+  FOR ALL TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors write product images" ON public.product_images
+  FOR ALL TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors write categories" ON public.categories
+  FOR ALL TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors write banners" ON public.banners
+  FOR ALL TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors write reviews" ON public.reviews
+  FOR ALL TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors write videos" ON public.site_videos
+  FOR ALL TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors write info pages" ON public.info_pages
+  FOR ALL TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors read orders" ON public.orders
+  FOR SELECT TO authenticated USING (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors update orders" ON public.orders
+  FOR UPDATE TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE POLICY "editors read abandoned carts" ON public.abandoned_carts
+  FOR SELECT TO authenticated USING (public.is_staff(auth.uid()));
+
+-- ==================== 20260813014747_faad5bbe-0808-4201-a8c2-7e8250348954.sql ====================
+REVOKE EXECUTE ON FUNCTION public.is_staff(uuid) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.is_staff(uuid) TO authenticated, service_role;
+
+-- ==================== 20260815024322_58108bd6-79fc-49f9-8f09-347b30452c30.sql ====================
+CREATE TABLE IF NOT EXISTS public.admin_audit_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  actor_email text,
+  section text NOT NULL,
+  table_name text NOT NULL,
+  record_id uuid,
+  action text NOT NULL,
+  label text,
+  before_data jsonb,
+  after_data jsonb,
+  rolled_back boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+GRANT SELECT, INSERT, UPDATE ON public.admin_audit_log TO authenticated;
+GRANT ALL ON public.admin_audit_log TO service_role;
+
+ALTER TABLE public.admin_audit_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "staff read audit log" ON public.admin_audit_log
+  FOR SELECT TO authenticated USING (public.is_staff(auth.uid()) OR public.has_role(auth.uid(),'admin'));
+CREATE POLICY "staff write audit log" ON public.admin_audit_log
+  FOR INSERT TO authenticated WITH CHECK (public.is_staff(auth.uid()) OR public.has_role(auth.uid(),'admin'));
+CREATE POLICY "staff update audit log" ON public.admin_audit_log
+  FOR UPDATE TO authenticated USING (public.is_staff(auth.uid()) OR public.has_role(auth.uid(),'admin'))
+  WITH CHECK (public.is_staff(auth.uid()) OR public.has_role(auth.uid(),'admin'));
+
+CREATE INDEX IF NOT EXISTS admin_audit_log_created_idx ON public.admin_audit_log (created_at DESC);
+
+INSERT INTO public.site_videos (title, subtitle, video_url, poster_url, is_active, sort_order)
+VALUES
+ ('Atelier Film — Runway Light', 'Behind the seams of an evening show', 'https://assets.mixkit.co/videos/42286/42286-720.mp4', 'https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=1200&q=80', true, 10),
+ ('Atelier Film — Hands & Heirlooms', 'Every piece, finished by hand', 'https://assets.mixkit.co/videos/44541/44541-720.mp4', 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=1200&q=80', true, 11);
+
+INSERT INTO public.service_areas (pincode, city, state, delivery_days, is_active) VALUES
+ ('400001','Mumbai','Maharashtra',3,true),
+ ('411001','Pune','Maharashtra',3,true),
+ ('110001','New Delhi','Delhi',4,true),
+ ('560001','Bengaluru','Karnataka',4,true),
+ ('600001','Chennai','Tamil Nadu',5,true),
+ ('700001','Kolkata','West Bengal',5,true),
+ ('380001','Ahmedabad','Gujarat',4,true),
+ ('302001','Jaipur','Rajasthan',5,true),
+ ('500001','Hyderabad','Telangana',4,true),
+ ('440001','Nagpur','Maharashtra',4,true)
+ON CONFLICT DO NOTHING;
+
+-- ==================== 20260817001227_717b94ca-b6bb-4337-8c0c-21394f86c642.sql ====================
+CREATE TABLE public.seo_overrides (
+  id uuid primary key default gen_random_uuid(),
+  route text not null unique,
+  title text,
+  description text,
+  canonical text,
+  og_title text,
+  og_description text,
+  og_image text,
+  twitter_card text,
+  json_ld jsonb,
+  no_index boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+GRANT SELECT ON public.seo_overrides TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.seo_overrides TO authenticated;
+GRANT ALL ON public.seo_overrides TO service_role;
+
+ALTER TABLE public.seo_overrides ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "public read seo overrides" ON public.seo_overrides FOR SELECT USING (true);
+CREATE POLICY "staff write seo overrides" ON public.seo_overrides FOR ALL TO authenticated USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE TRIGGER seo_overrides_updated_at BEFORE UPDATE ON public.seo_overrides
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+ALTER PUBLICATION supabase_realtime ADD TABLE public.seo_overrides;
+
+-- ==================== 20260818004526_22ffd99b-7bf1-43da-9826-ecedb833238d.sql ====================
+CREATE POLICY "Staff can view all wishlists" ON public.wishlists FOR SELECT TO authenticated USING (public.is_staff(auth.uid()));
+
+
+
+-- ==================== SEED DATA ====================
+
+-- Categories
+INSERT INTO public.categories (id, name, slug, image_url, sort_order, is_active, show_in_menu) VALUES ('ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 'Necklaces', 'necklaces', 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=600&q=80', 1, true, true) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, image_url=EXCLUDED.image_url, sort_order=EXCLUDED.sort_order, is_active=EXCLUDED.is_active, show_in_menu=EXCLUDED.show_in_menu;
+INSERT INTO public.categories (id, name, slug, image_url, sort_order, is_active, show_in_menu) VALUES ('214f6074-4944-4183-bab1-b9e1becc0069', 'Earrings', 'earrings', 'https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&w=600&q=80', 2, true, true) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, image_url=EXCLUDED.image_url, sort_order=EXCLUDED.sort_order, is_active=EXCLUDED.is_active, show_in_menu=EXCLUDED.show_in_menu;
+INSERT INTO public.categories (id, name, slug, image_url, sort_order, is_active, show_in_menu) VALUES ('765300c4-00c1-4c9f-957a-8aea783ec58d', 'Bracelets', 'bracelets', 'https://images.unsplash.com/photo-1573408301185-9146fe634ad0?auto=format&fit=crop&w=600&q=80', 3, true, true) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, image_url=EXCLUDED.image_url, sort_order=EXCLUDED.sort_order, is_active=EXCLUDED.is_active, show_in_menu=EXCLUDED.show_in_menu;
+INSERT INTO public.categories (id, name, slug, image_url, sort_order, is_active, show_in_menu) VALUES ('5a8650e1-e724-4b1e-a823-95607cbe8459', 'Rings', 'rings', 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=600&q=80', 4, true, true) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, image_url=EXCLUDED.image_url, sort_order=EXCLUDED.sort_order, is_active=EXCLUDED.is_active, show_in_menu=EXCLUDED.show_in_menu;
+
+-- Products
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('bfd64908-f1aa-4500-8c7e-1c158c63e16f', 'Mira Heart Lock', 'mira-heart-locket', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1173, 1919, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 2, true, true, 3, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('ac89d6a8-3d3d-4fb3-a8f6-f16fa7b8eef7', 'Celeste Pearl Drop', 'celeste-pearl-drop', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1310, 2129, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 12, true, false, 4, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('81a2b7be-5aed-4183-9d19-216a1f92b53a', 'Vela Rope Chain', 'vela-rope-chain', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1447, 2339, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 8, true, false, 5, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('95fbf736-ac11-4d02-95eb-4bd44df60fcf', 'Liora Charm Necklace', 'liora-charm-necklace', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1584, 2549, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 4, true, false, 6, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('87758c31-5c30-4e90-8000-24a0e4f67690', 'Noor Twist Collar', 'noor-twist-collar', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1721, 2759, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 20, true, false, 7, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('1165bc54-e732-498f-8dc5-73c6d3954d38', 'Elara Coin Pendant', 'elara-coin-pendant', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1858, 2969, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 6, true, false, 8, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('78a9c246-f34c-4d3e-949b-741b34d25dc8', 'Ivy Bloom Necklace', 'ivy-bloom-necklace', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1995, 3179, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 15, true, false, 9, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('b705fed9-9b46-44e4-841f-4958063d5b85', 'Sable Snake Chain', 'sable-snake-chain', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2132, 3389, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 9, true, false, 10, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('ab46f605-01aa-4178-b93e-3abb49bc0b11', 'Amara Teardrop Necklace', 'amara-teardrop-necklace', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2269, 3599, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 1, true, false, 11, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('7f292c77-4f71-42a1-8fcb-29a3abce3991', 'Juno Bar Necklace', 'juno-bar-necklace', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2406, 3809, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 7, true, false, 12, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('ab153479-4859-4dfc-9306-525d193925c9', 'Selene Moon Pendant', 'selene-moon-pendant', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2543, 4019, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 11, true, false, 13, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('f842ef66-ad49-4ce0-8d70-af243b59f35c', 'Rhea Baguette Chain', 'rhea-baguette-chain', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2680, 3329, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 25, true, false, 14, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('08e304e7-e46c-4d4f-a2f2-7273a2cb9fee', 'Aurora Pendant Chain', 'aurora-pendant-chain', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 899, 1499, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 3, true, true, 1, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('86b52d00-18ef-413a-8ed7-2fb7d1399df6', 'Solene Layered Necklace', 'solene-layered-necklace', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1036, 1709, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 5, true, true, 2, true, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('9c70f318-19c5-4ac1-9fc2-99e5c80f343f', 'Cleo Herringbone Chain', 'cleo-herringbone-chain', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2817, 3539, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 10, true, false, 15, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('80dd487f-fe7d-42f1-9de8-3bc1424c51b5', 'Zara Interlink Necklace', 'zara-interlink-necklace', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2954, 3749, 'ea2a4be1-a8c7-403a-bbb2-95feea7a2cc0', 14, true, false, 16, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('d7264486-afb9-45c7-9fe3-c62c7f8504e6', 'Petal Hoop Earrings', 'petal-hoop-earrings', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 899, 1499, '214f6074-4944-4183-bab1-b9e1becc0069', 3, true, true, 17, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('87b4bd4d-0716-4f99-93af-dcc391135742', 'Duchess Drop Studs', 'duchess-drop-studs', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1036, 1709, '214f6074-4944-4183-bab1-b9e1becc0069', 5, true, true, 18, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('be88e3d2-e299-48bf-9b3f-2e32dc29a257', 'Halo Pearl Studs', 'halo-pearl-studs', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1173, 1919, '214f6074-4944-4183-bab1-b9e1becc0069', 2, true, true, 19, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('95a5eb94-f66d-403b-8d1f-1ee7f9f748f8', 'Luna Crescent Hoops', 'luna-crescent-hoops', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1310, 2129, '214f6074-4944-4183-bab1-b9e1becc0069', 12, true, false, 20, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('fb00e70f-231b-42c5-bb72-a1b54de38c3c', 'Ember Tassel Earrings', 'ember-tassel-earrings', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1447, 2339, '214f6074-4944-4183-bab1-b9e1becc0069', 8, true, false, 21, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('f979d2f8-b6d1-43f6-80c9-3d13632fe3ab', 'Ivy Huggie Hoops', 'ivy-huggie-hoops', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1584, 2549, '214f6074-4944-4183-bab1-b9e1becc0069', 4, true, false, 22, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('f4f7f883-17f4-4ecc-b61c-bc889e90c498', 'Aria Chandelier Drops', 'aria-chandelier-drops', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1721, 2759, '214f6074-4944-4183-bab1-b9e1becc0069', 20, true, false, 23, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('890a74b7-5c63-4503-9d29-6ed8f1abacbe', 'Nova Star Studs', 'nova-star-studs', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1858, 2969, '214f6074-4944-4183-bab1-b9e1becc0069', 6, true, false, 24, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('d3350a9e-bb4f-4039-a745-e713a2f2a11d', 'Bloom Floral Studs', 'bloom-floral-studs', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1995, 3179, '214f6074-4944-4183-bab1-b9e1becc0069', 15, true, false, 25, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('c8ba22d5-b375-4258-bf1b-e8f453a7da66', 'Cascade Chain Drops', 'cascade-chain-drops', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2132, 3389, '214f6074-4944-4183-bab1-b9e1becc0069', 9, true, false, 26, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('fb086d0d-528f-4a65-9a39-a0dc062381ec', 'Mimi Mini Hoops', 'mimi-mini-hoops', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2269, 3599, '214f6074-4944-4183-bab1-b9e1becc0069', 1, true, false, 27, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('5ed5cbac-5566-4e3e-a6cf-138035e8c9d9', 'Opal Dew Earrings', 'opal-dew-earrings', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2406, 3809, '214f6074-4944-4183-bab1-b9e1becc0069', 7, true, false, 28, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('a6269b2c-ff43-4334-baf5-0fe67e8e3650', 'Ripple Twist Hoops', 'ripple-twist-hoops', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2543, 4019, '214f6074-4944-4183-bab1-b9e1becc0069', 11, true, false, 29, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('4a029959-a236-4718-ad4e-02a521d82fa1', 'Quinn Geo Studs', 'quinn-geo-studs', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2680, 3329, '214f6074-4944-4183-bab1-b9e1becc0069', 25, true, false, 30, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('e52087f2-3990-475c-bc41-1b96db949f65', 'Serene Shell Drops', 'serene-shell-drops', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2817, 3539, '214f6074-4944-4183-bab1-b9e1becc0069', 10, true, false, 31, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('97cdddcb-5baf-40fb-8c3f-7e0fb632756a', 'Bella Bow Earrings', 'bella-bow-earrings', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2954, 3749, '214f6074-4944-4183-bab1-b9e1becc0069', 14, true, false, 32, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('2a3a95bb-63df-499a-9a7a-5480c7fa16be', 'Chain of Grace Bracelet', 'chain-of-grace-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 899, 1499, '765300c4-00c1-4c9f-957a-8aea783ec58d', 3, true, true, 33, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('deeceb46-f0c9-4eb4-8424-68aa0897ecde', 'Willow Charm Bracelet', 'willow-charm-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1036, 1709, '765300c4-00c1-4c9f-957a-8aea783ec58d', 5, true, true, 34, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('669c8555-e539-4f1b-abf9-fc68dc4844d6', 'Etoile Tennis Bracelet', 'etoile-tennis-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1173, 1919, '765300c4-00c1-4c9f-957a-8aea783ec58d', 2, true, true, 35, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('87d7590f-f94a-453d-b9bb-b531ad90a32f', 'Mira Cuff Bangle', 'mira-cuff-bangle', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1310, 2129, '765300c4-00c1-4c9f-957a-8aea783ec58d', 12, true, false, 36, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('3f983e39-85a6-4751-a1e4-18073b0e67cb', 'Ivy Rope Bracelet', 'ivy-rope-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1447, 2339, '765300c4-00c1-4c9f-957a-8aea783ec58d', 8, true, false, 37, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('2eeebfcf-6fbb-47cf-84e0-b4b4e0ea447f', 'Halo Bead Bracelet', 'halo-bead-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1584, 2549, '765300c4-00c1-4c9f-957a-8aea783ec58d', 4, true, false, 38, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('6321653f-59f4-466e-a498-01840d7a0df5', 'Nyla Link Chain Bracelet', 'nyla-link-chain-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1721, 2759, '765300c4-00c1-4c9f-957a-8aea783ec58d', 20, true, false, 39, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('86418a0e-89f2-4da1-93a5-d600e8eda279', 'Aura Slim Bangle', 'aura-slim-bangle', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1858, 2969, '765300c4-00c1-4c9f-957a-8aea783ec58d', 6, true, false, 40, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('85d3316a-206e-4f4d-9662-4badfd57da60', 'Petra Knot Bracelet', 'petra-knot-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1995, 3179, '765300c4-00c1-4c9f-957a-8aea783ec58d', 15, true, false, 41, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('20c62faf-831d-47a7-94b7-ede0161aeaa2', 'Sable Curb Bracelet', 'sable-curb-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2132, 3389, '765300c4-00c1-4c9f-957a-8aea783ec58d', 9, true, false, 42, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('15486c22-a948-4a4a-8afa-6f96d382488a', 'Zia Pearl Strand', 'zia-pearl-strand', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2269, 3599, '765300c4-00c1-4c9f-957a-8aea783ec58d', 1, true, false, 43, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('b709dd51-a41f-482c-adc3-c2e52c29212c', 'Lune Twist Cuff', 'lune-twist-cuff', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2406, 3809, '765300c4-00c1-4c9f-957a-8aea783ec58d', 7, true, false, 44, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('b224e23c-71dc-4539-a3fd-c732f239a0b1', 'Rosa Heart Chain Bracelet', 'rosa-heart-chain-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2543, 4019, '765300c4-00c1-4c9f-957a-8aea783ec58d', 11, true, false, 45, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('54818d8c-4fff-40fc-adb4-ffc148cc7a22', 'Kaia Layered Bracelet', 'kaia-layered-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2680, 3329, '765300c4-00c1-4c9f-957a-8aea783ec58d', 25, true, false, 46, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('ab71c7e6-e911-4279-90fd-636858ce5b9b', 'Vera Herringbone Cuff', 'vera-herringbone-cuff', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2817, 3539, '765300c4-00c1-4c9f-957a-8aea783ec58d', 10, true, false, 47, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('f6078f79-831b-47d4-9344-55007cc0b065', 'Nia Anchor Bracelet', 'nia-anchor-bracelet', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2954, 3749, '765300c4-00c1-4c9f-957a-8aea783ec58d', 14, true, false, 48, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('a6ca6c7c-9810-4276-9c02-49d2e4fff544', 'Chevron Stack Ring', 'chevron-stack-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 899, 1499, '5a8650e1-e724-4b1e-a823-95607cbe8459', 3, true, true, 49, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('65d5d21c-4236-4b6c-8079-c214ca07827d', 'Solene Signet Ring', 'solene-signet-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1036, 1709, '5a8650e1-e724-4b1e-a823-95607cbe8459', 5, true, true, 50, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('d468e894-39f6-4feb-a91b-e21c721a61a3', 'Halo Solitaire Ring', 'halo-solitaire-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1173, 1919, '5a8650e1-e724-4b1e-a823-95607cbe8459', 2, true, true, 51, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('13c6ba9d-378d-42e2-887c-58b136b53b41', 'Ivy Vine Band', 'ivy-vine-band', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1310, 2129, '5a8650e1-e724-4b1e-a823-95607cbe8459', 12, true, false, 52, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('59a831e9-9b34-447a-b7a3-65b9ef01b026', 'Petal Cluster Ring', 'petal-cluster-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1447, 2339, '5a8650e1-e724-4b1e-a823-95607cbe8459', 8, true, false, 53, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('c3cf0241-56f2-4046-8f46-2e11032b7015', 'Duo Twist Ring', 'duo-twist-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1584, 2549, '5a8650e1-e724-4b1e-a823-95607cbe8459', 4, true, false, 54, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('68d666a1-a5c0-4de1-af95-de7b66d469e1', 'Luna Crescent Ring', 'luna-crescent-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1721, 2759, '5a8650e1-e724-4b1e-a823-95607cbe8459', 20, true, false, 55, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('597e5459-5de7-432a-b3d7-9cf1c2cf04b3', 'Mira Dome Ring', 'mira-dome-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1858, 2969, '5a8650e1-e724-4b1e-a823-95607cbe8459', 6, true, false, 56, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('ed64e0aa-cc7c-4759-8df2-72cb61c6bea1', 'Nova Baguette Ring', 'nova-baguette-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 1995, 3179, '5a8650e1-e724-4b1e-a823-95607cbe8459', 15, true, false, 57, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('3ab5bdc4-122a-4dfc-9c77-52185cbd2b7e', 'Aria Pearl Ring', 'aria-pearl-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2132, 3389, '5a8650e1-e724-4b1e-a823-95607cbe8459', 9, true, false, 58, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('6485fdad-25c3-490c-a901-0f87d7c88534', 'Zen Minimal Band', 'zen-minimal-band', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2269, 3599, '5a8650e1-e724-4b1e-a823-95607cbe8459', 1, true, false, 59, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('e888138e-27c6-49d9-81fe-2e81ea7942d5', 'Bloom Flower Ring', 'bloom-flower-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2406, 3809, '5a8650e1-e724-4b1e-a823-95607cbe8459', 7, true, false, 60, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('dd8cebef-bf35-467c-83b5-4be0bdc791ca', 'Ember Open Ring', 'ember-open-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2543, 4019, '5a8650e1-e724-4b1e-a823-95607cbe8459', 11, true, false, 61, false, NULL, true, 'Hurry!', 'left — ending soon') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('7b656af0-03ae-4a88-83ae-0483f6744298', 'Sable Chunky Band', 'sable-chunky-band', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2680, 3329, '5a8650e1-e724-4b1e-a823-95607cbe8459', 25, true, false, 62, false, NULL, true, 'Almost gone —', 'in stock') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('449dee19-fbb2-4dba-b9f4-994dc9f5722b', 'Elara Eternity Ring', 'elara-eternity-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2817, 3539, '5a8650e1-e724-4b1e-a823-95607cbe8459', 10, true, false, 63, false, NULL, true, 'Selling fast:', NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+INSERT INTO public.products (id, name, slug, description, price, compare_at_price, category_id, stock, is_active, is_featured, sort_order, out_of_stock, video_url, show_stock, stock_prefix, stock_suffix) VALUES ('949e7916-9cbf-43a9-85cc-c37b7278f2ea', 'Quinn Square Ring', 'quinn-square-ring', 'Handcrafted with obsessive attention to detail, made to be worn every day and on the days that matter. Anti-tarnish finish, hypoallergenic, endlessly layerable.', 2954, 3749, '5a8650e1-e724-4b1e-a823-95607cbe8459', 14, true, false, 64, false, NULL, true, NULL, 'left') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, slug=EXCLUDED.slug, description=EXCLUDED.description, price=EXCLUDED.price, compare_at_price=EXCLUDED.compare_at_price, category_id=EXCLUDED.category_id, stock=EXCLUDED.stock, is_active=EXCLUDED.is_active, is_featured=EXCLUDED.is_featured, sort_order=EXCLUDED.sort_order, out_of_stock=EXCLUDED.out_of_stock, video_url=EXCLUDED.video_url, show_stock=EXCLUDED.show_stock, stock_prefix=EXCLUDED.stock_prefix, stock_suffix=EXCLUDED.stock_suffix;
+
+-- Product Images
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('7eefac3d-2667-4b68-8968-64b0a8e3896e', 'ac89d6a8-3d3d-4fb3-a8f6-f16fa7b8eef7', 'https://images.unsplash.com/photo-1573408301185-9146fe634ad0?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('4c0b5796-bacd-4b7f-b42d-30668452263a', 'ac89d6a8-3d3d-4fb3-a8f6-f16fa7b8eef7', 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('4c9dc6f8-183e-49b5-917a-3d7c74252b3d', '81a2b7be-5aed-4183-9d19-216a1f92b53a', 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('518c508e-4bb5-4cf7-845a-661789dbc5b2', '81a2b7be-5aed-4183-9d19-216a1f92b53a', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('dae613b4-13df-4ad9-9f31-908721e42422', '95fbf736-ac11-4d02-95eb-4bd44df60fcf', 'https://images.unsplash.com/photo-1602173574767-37ac01994b2a?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('aed03261-883f-460d-aaee-86a6a227628a', '95fbf736-ac11-4d02-95eb-4bd44df60fcf', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('3ccdf26b-79d0-4ddf-aaae-6b15c8ec3a3d', '87758c31-5c30-4e90-8000-24a0e4f67690', 'https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('1f2461a7-1efe-4e7b-b57d-aae31e27833b', '87758c31-5c30-4e90-8000-24a0e4f67690', 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('abe26f13-8fe9-43ae-987d-c2e0bf7c928a', '1165bc54-e732-498f-8dc5-73c6d3954d38', 'https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('0be573db-06ec-445c-8fc0-5dedb624e43d', '1165bc54-e732-498f-8dc5-73c6d3954d38', 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('49217ddf-9665-4ef1-95cf-b636c548de79', '78a9c246-f34c-4d3e-949b-741b34d25dc8', 'https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('6ef6e585-e1cf-45ef-9537-58f5e4b1afe7', '78a9c246-f34c-4d3e-949b-741b34d25dc8', 'https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('fa2dcb41-9d17-4d1c-9fbd-d4bec26543a8', 'b705fed9-9b46-44e4-841f-4958063d5b85', 'https://images.unsplash.com/photo-1596944924616-7b38e7cfac36?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('eeb65aa9-39e9-4198-af48-c7899a13a394', 'b705fed9-9b46-44e4-841f-4958063d5b85', 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('404c51aa-0599-4b59-a1ae-f04d4a1ec295', 'ab46f605-01aa-4178-b93e-3abb49bc0b11', 'https://images.unsplash.com/photo-1608042314453-ae338d80c427?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('04c2b662-b1fe-4318-8f70-6cbe8019b941', 'ab46f605-01aa-4178-b93e-3abb49bc0b11', 'https://images.unsplash.com/photo-1517365830460-955ce3ccd263?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('c4bfdf49-15ed-4bca-8d53-8b9690e2fc81', '7f292c77-4f71-42a1-8fcb-29a3abce3991', 'https://images.unsplash.com/photo-1620656798579-1984d9e87df7?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('9d07ea3d-9eeb-4192-9f55-d1c0904b04a7', '7f292c77-4f71-42a1-8fcb-29a3abce3991', 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d4cc6bd7-1364-41a9-bcde-285bba24638c', 'ab153479-4859-4dfc-9306-525d193925c9', 'https://images.unsplash.com/photo-1602751584552-8ba73aad10e1?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('35abda80-52de-4c61-9775-73733d01b823', 'ab153479-4859-4dfc-9306-525d193925c9', 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('e8edbe36-ada1-4e58-9d0d-be8d344f281e', 'f842ef66-ad49-4ce0-8d70-af243b59f35c', 'https://images.unsplash.com/photo-1512163143273-bde0e3cc7407?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('04cd485e-3c92-4915-9e37-e9e04448b629', 'f842ef66-ad49-4ce0-8d70-af243b59f35c', 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('69279fee-baeb-4d23-9757-456e960af920', '9c70f318-19c5-4ac1-9fc2-99e5c80f343f', 'https://images.unsplash.com/photo-1584302179602-e4c3d3fd629d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('a6c5b155-fdd6-47a5-b53b-a09b720fb16a', '9c70f318-19c5-4ac1-9fc2-99e5c80f343f', 'https://images.unsplash.com/photo-1554151228-14d9def656e4?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('6712b3d5-fd49-4160-9773-8e952f6ab94d', '80dd487f-fe7d-42f1-9de8-3bc1424c51b5', 'https://images.unsplash.com/photo-1589128777073-263566ae5e4d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('c290b256-074b-4b59-b107-1bb82456f83d', '80dd487f-fe7d-42f1-9de8-3bc1424c51b5', 'https://images.unsplash.com/photo-1546961329-78bef0414d7c?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('9ce0e077-91bc-4938-9811-561d9049616e', 'd7264486-afb9-45c7-9fe3-c62c7f8504e6', 'https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d585b253-939c-4722-8182-0f68ef01bec0', 'd7264486-afb9-45c7-9fe3-c62c7f8504e6', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('fffc4f2e-e529-40fb-9d7e-d851d90011ef', '87b4bd4d-0716-4f99-93af-dcc391135742', 'https://images.unsplash.com/photo-1600721391689-2564bb8055de?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('c0d972c2-557d-4cc5-8e34-32cab37afe43', '87b4bd4d-0716-4f99-93af-dcc391135742', 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('67b87b17-3ca7-493f-96f9-b8d4d7361743', 'be88e3d2-e299-48bf-9b3f-2e32dc29a257', 'https://images.unsplash.com/photo-1603561591411-07134e71a2a9?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('1cc62f25-109c-4d82-b122-0068f6abcf83', 'be88e3d2-e299-48bf-9b3f-2e32dc29a257', 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('5cc491ff-d3c8-4691-b431-3d232a92af72', '95a5eb94-f66d-403b-8d1f-1ee7f9f748f8', 'https://images.unsplash.com/photo-1631982690223-8aa4be0a2497?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('7d4358f7-e4d0-40a6-8088-85f343ca169f', '95a5eb94-f66d-403b-8d1f-1ee7f9f748f8', 'https://images.unsplash.com/photo-1552058544-f2b08422138a?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('911c323f-b2cb-4a0b-ae07-8e79c60320f3', 'fb00e70f-231b-42c5-bb72-a1b54de38c3c', 'https://images.unsplash.com/photo-1599459183200-59c7687a0275?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('067564e9-b392-4ee2-ab61-7a5ea87a427a', 'fb00e70f-231b-42c5-bb72-a1b54de38c3c', 'https://images.unsplash.com/photo-1463453091185-61582044d556?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('b6c3e6a4-8e45-4e45-b861-2cde0d35a899', 'f979d2f8-b6d1-43f6-80c9-3d13632fe3ab', 'https://images.unsplash.com/photo-1606760227091-3dd870d97f1d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('b065217c-9341-4cfa-b4e7-fd7e596a6450', 'f979d2f8-b6d1-43f6-80c9-3d13632fe3ab', 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('89980d5a-e916-4ed1-8572-529e040cb818', 'f4f7f883-17f4-4ecc-b61c-bc889e90c498', 'https://images.unsplash.com/photo-1618403088890-3d9ff6f4c8b1?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('ca92db8f-79f3-4076-bf45-5cc531672fd2', 'f4f7f883-17f4-4ecc-b61c-bc889e90c498', 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('1ba5fac5-0b96-4ebf-9a5a-c682c764e202', '890a74b7-5c63-4503-9d29-6ed8f1abacbe', 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('24cdc2ce-d1ef-4fcd-8444-14b7567b89eb', '890a74b7-5c63-4503-9d29-6ed8f1abacbe', 'https://images.unsplash.com/photo-1568602471122-7832951cc4c5?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('c01b8e16-ee6e-4e67-ab6d-2605fee4b8b2', 'd3350a9e-bb4f-4039-a745-e713a2f2a11d', 'https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('a12ad971-d6f5-4f46-8826-ffec5e8d5816', 'd3350a9e-bb4f-4039-a745-e713a2f2a11d', 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('dec893e7-9c0e-492a-a6fb-d99836be7261', 'c8ba22d5-b375-4258-bf1b-e8f453a7da66', 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('a37c90bc-1886-4c13-a307-132bdbe4d00d', 'c8ba22d5-b375-4258-bf1b-e8f453a7da66', 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d0d98541-a823-4785-b3f8-012d6b442beb', 'fb086d0d-528f-4a65-9a39-a0dc062381ec', 'https://images.unsplash.com/photo-1573408301185-9146fe634ad0?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d6017528-e043-46f5-9fac-4fa2ec96af5d', 'fb086d0d-528f-4a65-9a39-a0dc062381ec', 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('763ab886-52c8-43ab-89c9-e79425ef3dc7', '5ed5cbac-5566-4e3e-a6cf-138035e8c9d9', 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('df5517f0-dd77-4ffb-8454-3a7f1502f184', '5ed5cbac-5566-4e3e-a6cf-138035e8c9d9', 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('4f3a1bc4-9097-44ca-935a-1d27b37e4985', 'a6269b2c-ff43-4334-baf5-0fe67e8e3650', 'https://images.unsplash.com/photo-1602173574767-37ac01994b2a?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('5d959723-8086-462d-a076-f75f15d0d196', 'a6269b2c-ff43-4334-baf5-0fe67e8e3650', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('42186ef0-70ea-4f32-ba93-f221ed9d2401', '4a029959-a236-4718-ad4e-02a521d82fa1', 'https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('0814ff63-026e-40de-8714-6caaf904c584', '4a029959-a236-4718-ad4e-02a521d82fa1', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('60a4460f-71ad-4ac0-a886-cdd486845980', 'e52087f2-3990-475c-bc41-1b96db949f65', 'https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('c14fa854-f6dd-45b2-9dcc-d9e9f97a92ee', 'e52087f2-3990-475c-bc41-1b96db949f65', 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('993ec403-d071-4b31-b8f7-3aba3fc7bb0b', '97cdddcb-5baf-40fb-8c3f-7e0fb632756a', 'https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('376997f3-4f7f-404f-8206-3c6ef52c7206', '97cdddcb-5baf-40fb-8c3f-7e0fb632756a', 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('f6a6ba9c-5f9e-41ec-a631-f03940d4812d', '2a3a95bb-63df-499a-9a7a-5480c7fa16be', 'https://images.unsplash.com/photo-1596944924616-7b38e7cfac36?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('66bc9f7e-8d7e-43b6-b038-7a62d78f0583', '2a3a95bb-63df-499a-9a7a-5480c7fa16be', 'https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d00fe706-52c8-4359-86b1-b2c8ee2481bd', 'deeceb46-f0c9-4eb4-8424-68aa0897ecde', 'https://images.unsplash.com/photo-1608042314453-ae338d80c427?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('a3453132-6d5a-4024-9ce3-ba3f0cb29ab7', 'deeceb46-f0c9-4eb4-8424-68aa0897ecde', 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('0a787e79-b039-4fbe-b731-38bfd564a7a1', '669c8555-e539-4f1b-abf9-fc68dc4844d6', 'https://images.unsplash.com/photo-1620656798579-1984d9e87df7?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('ad2b00d3-cec8-4707-b4a9-10f39ee1986d', '669c8555-e539-4f1b-abf9-fc68dc4844d6', 'https://images.unsplash.com/photo-1517365830460-955ce3ccd263?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('76a04a86-603f-473c-9759-140e679118ad', '87d7590f-f94a-453d-b9bb-b531ad90a32f', 'https://images.unsplash.com/photo-1602751584552-8ba73aad10e1?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('c18ba1f9-9702-4665-8c31-bbf53216d6a2', '87d7590f-f94a-453d-b9bb-b531ad90a32f', 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('e25801bc-b1e6-4788-a328-ddd069147483', '3f983e39-85a6-4751-a1e4-18073b0e67cb', 'https://images.unsplash.com/photo-1512163143273-bde0e3cc7407?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('a4742663-cc09-4c64-bee1-b7c854566175', '3f983e39-85a6-4751-a1e4-18073b0e67cb', 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('679e1dac-5c17-4414-bbc1-1528bcd290bf', '2eeebfcf-6fbb-47cf-84e0-b4b4e0ea447f', 'https://images.unsplash.com/photo-1584302179602-e4c3d3fd629d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('72074360-b499-4e08-8c7a-9a22f22baaf8', '2eeebfcf-6fbb-47cf-84e0-b4b4e0ea447f', 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('67d69819-4021-49f6-9980-47b5b1f25b88', '6321653f-59f4-466e-a498-01840d7a0df5', 'https://images.unsplash.com/photo-1589128777073-263566ae5e4d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('e3735127-4047-4daf-9523-141802df1664', '6321653f-59f4-466e-a498-01840d7a0df5', 'https://images.unsplash.com/photo-1554151228-14d9def656e4?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('a0f28379-a835-47c2-a8bc-c84e541484d6', '86418a0e-89f2-4da1-93a5-d600e8eda279', 'https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('20028f49-70fd-4096-afd5-11b3c1b9e3e5', '86418a0e-89f2-4da1-93a5-d600e8eda279', 'https://images.unsplash.com/photo-1546961329-78bef0414d7c?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('33a3e020-b1bd-43f4-bdeb-e069b9934bf1', '85d3316a-206e-4f4d-9662-4badfd57da60', 'https://images.unsplash.com/photo-1600721391689-2564bb8055de?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d0b275c4-e0fa-4475-a07e-cc5ab1840e0b', '85d3316a-206e-4f4d-9662-4badfd57da60', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('f6f604b1-6e06-4bac-b138-1533a0da44cf', '20c62faf-831d-47a7-94b7-ede0161aeaa2', 'https://images.unsplash.com/photo-1603561591411-07134e71a2a9?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('dbb4c5de-44ec-4df6-bc02-9fb34e8f97b4', '20c62faf-831d-47a7-94b7-ede0161aeaa2', 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('aabf5a9a-5181-4bf3-bbbc-5a7559bcaa9f', '15486c22-a948-4a4a-8afa-6f96d382488a', 'https://images.unsplash.com/photo-1631982690223-8aa4be0a2497?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('14f3818e-b176-4493-ba11-136e4849c95f', '15486c22-a948-4a4a-8afa-6f96d382488a', 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('e33da78e-0f77-4fa9-b68f-a9c1bc181cb4', 'b709dd51-a41f-482c-adc3-c2e52c29212c', 'https://images.unsplash.com/photo-1599459183200-59c7687a0275?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d6f35e64-3f0e-40b0-a08d-b0b7f9310e77', 'b709dd51-a41f-482c-adc3-c2e52c29212c', 'https://images.unsplash.com/photo-1552058544-f2b08422138a?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('87a7ecc5-6a0a-4c6a-804c-576f6be8718a', 'b224e23c-71dc-4539-a3fd-c732f239a0b1', 'https://images.unsplash.com/photo-1606760227091-3dd870d97f1d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('a2fa30cb-4044-422f-9a7c-4d7a3d7e9dc5', 'b224e23c-71dc-4539-a3fd-c732f239a0b1', 'https://images.unsplash.com/photo-1463453091185-61582044d556?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('06fde8f8-702e-421d-b0b0-1ff5e78a5506', '54818d8c-4fff-40fc-adb4-ffc148cc7a22', 'https://images.unsplash.com/photo-1618403088890-3d9ff6f4c8b1?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('48c7f455-7d6f-4994-a3f0-1fb446606ba1', '54818d8c-4fff-40fc-adb4-ffc148cc7a22', 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d35c1f4a-379c-4058-8afa-06926ad51a50', 'ab71c7e6-e911-4279-90fd-636858ce5b9b', 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('d02c0b66-517c-40f9-baf7-08ac21ea06b1', 'ab71c7e6-e911-4279-90fd-636858ce5b9b', 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('52fa194c-85df-4ba1-b8f4-9778d3290a7f', 'f6078f79-831b-47d4-9344-55007cc0b065', 'https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('fc43896c-a490-40e6-b5b2-2fec3a8489cf', 'f6078f79-831b-47d4-9344-55007cc0b065', 'https://images.unsplash.com/photo-1568602471122-7832951cc4c5?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('bf9092c3-edb9-425d-a9b8-952543bba6f5', 'a6ca6c7c-9810-4276-9c02-49d2e4fff544', 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('54719fa9-f70b-4ef9-9afd-7abbafda07a4', 'a6ca6c7c-9810-4276-9c02-49d2e4fff544', 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('6dcbb4ad-6934-4766-a851-c9e17e102dca', '65d5d21c-4236-4b6c-8079-c214ca07827d', 'https://images.unsplash.com/photo-1573408301185-9146fe634ad0?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('1ceab0f4-eb89-4675-a731-e4cbe7cc8f00', '65d5d21c-4236-4b6c-8079-c214ca07827d', 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('58f25e61-068e-4595-b9ac-bb3c678a478f', 'd468e894-39f6-4feb-a91b-e21c721a61a3', 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('60445212-1e59-4c6b-bfb9-69d4c9c3eedc', 'd468e894-39f6-4feb-a91b-e21c721a61a3', 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('b230a3d8-5952-4e01-9f39-014f31c256b4', '13c6ba9d-378d-42e2-887c-58b136b53b41', 'https://images.unsplash.com/photo-1602173574767-37ac01994b2a?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('f7def79c-eeb7-4c42-a2a2-90bedf9f713c', '13c6ba9d-378d-42e2-887c-58b136b53b41', 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('e14d1faf-7ebd-4d90-9bb6-6d85289fc1f9', '59a831e9-9b34-447a-b7a3-65b9ef01b026', 'https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('64b1ea1c-3b44-4da8-82d6-9f4ff5240e8b', '59a831e9-9b34-447a-b7a3-65b9ef01b026', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('c34f0072-2a6f-44df-ac67-2f9836ce0c09', 'c3cf0241-56f2-4046-8f46-2e11032b7015', 'https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('560b1bb8-90a7-4d57-93a6-c393783f063f', 'c3cf0241-56f2-4046-8f46-2e11032b7015', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('1c80cbc2-6657-4936-9347-af020699cbcf', '68d666a1-a5c0-4de1-af95-de7b66d469e1', 'https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('2e40ce35-5f12-43f6-8187-be5ea5396919', '68d666a1-a5c0-4de1-af95-de7b66d469e1', 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('a2d25696-2a9c-44fa-8802-d616a618aa67', '597e5459-5de7-432a-b3d7-9cf1c2cf04b3', 'https://images.unsplash.com/photo-1596944924616-7b38e7cfac36?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('3ce204fd-ad66-4625-947e-27c5580f450b', '597e5459-5de7-432a-b3d7-9cf1c2cf04b3', 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('bb846200-3b5b-4ced-bb58-09f8a77642d1', 'ed64e0aa-cc7c-4759-8df2-72cb61c6bea1', 'https://images.unsplash.com/photo-1608042314453-ae338d80c427?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('68dc8095-f866-47a0-9fb4-16316381d9d4', 'ed64e0aa-cc7c-4759-8df2-72cb61c6bea1', 'https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('0367ea1d-ac69-4460-9bcc-1e61a388e333', '3ab5bdc4-122a-4dfc-9c77-52185cbd2b7e', 'https://images.unsplash.com/photo-1620656798579-1984d9e87df7?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('6e408c73-3b2b-48e8-b9c1-2b7751f94ede', '3ab5bdc4-122a-4dfc-9c77-52185cbd2b7e', 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('f2b93da5-c6aa-417a-8dbb-f0513871d91b', '6485fdad-25c3-490c-a901-0f87d7c88534', 'https://images.unsplash.com/photo-1602751584552-8ba73aad10e1?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('82c724aa-6368-455f-b4ef-f620eb9616fd', '6485fdad-25c3-490c-a901-0f87d7c88534', 'https://images.unsplash.com/photo-1517365830460-955ce3ccd263?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('8255f593-e5ae-407e-b105-a88e28506e57', 'e888138e-27c6-49d9-81fe-2e81ea7942d5', 'https://images.unsplash.com/photo-1512163143273-bde0e3cc7407?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('79290449-fe9a-4563-bd94-2713057a1abd', 'e888138e-27c6-49d9-81fe-2e81ea7942d5', 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('ffa889cc-d3cb-4608-8fb4-5d6ac4a730ce', 'dd8cebef-bf35-467c-83b5-4be0bdc791ca', 'https://images.unsplash.com/photo-1584302179602-e4c3d3fd629d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('111d50c6-db3d-4ed2-a865-425fee67e7a1', 'dd8cebef-bf35-467c-83b5-4be0bdc791ca', 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('88cb0d94-47ef-49c3-81d6-c7a5c917d537', '7b656af0-03ae-4a88-83ae-0483f6744298', 'https://images.unsplash.com/photo-1589128777073-263566ae5e4d?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('6e773444-aa96-4a33-b76d-46a61d187999', '7b656af0-03ae-4a88-83ae-0483f6744298', 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('04110f41-3123-401b-ad06-192207e416f1', '449dee19-fbb2-4dba-b9f4-994dc9f5722b', 'https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('67e696b3-3249-4fa9-9e89-d69b814092f5', '449dee19-fbb2-4dba-b9f4-994dc9f5722b', 'https://images.unsplash.com/photo-1554151228-14d9def656e4?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('8b710d80-34ba-4c76-b475-68ce7f803af7', '949e7916-9cbf-43a9-85cc-c37b7278f2ea', 'https://images.unsplash.com/photo-1600721391689-2564bb8055de?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('3f65b343-7cd1-4cb8-877c-9f0bd04417f2', '949e7916-9cbf-43a9-85cc-c37b7278f2ea', 'https://images.unsplash.com/photo-1546961329-78bef0414d7c?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('e842e3b2-a185-46c3-a065-4ab320917ad9', '08e304e7-e46c-4d4f-a2f2-7273a2cb9fee', 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('78020124-1a9b-44f4-8de9-b669b078b6fb', '08e304e7-e46c-4d4f-a2f2-7273a2cb9fee', 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('aedc804d-d2f9-4fb6-a828-d1e90994aa4e', '86b52d00-18ef-413a-8ed7-2fb7d1399df6', 'https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('49716881-9334-41de-84e6-a84c935e7659', '86b52d00-18ef-413a-8ed7-2fb7d1399df6', 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('07b0ea21-dfa8-45af-8704-542879cc82c2', 'bfd64908-f1aa-4500-8c7e-1c158c63e16f', 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=900&q=80', 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_images (id, product_id, url, sort_order) VALUES ('056f6fe1-4cd7-4acc-bcc5-9ea0de0353b6', 'bfd64908-f1aa-4500-8c7e-1c158c63e16f', 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80', 1) ON CONFLICT (id) DO NOTHING;
+
+-- Banners
+INSERT INTO public.banners (id, title, subtitle, image_url, cta_label, cta_link, position, is_active, sort_order, video_url) VALUES ('2dde3e24-0132-4c3f-b4f8-9ba90b9544b4', 'Rose Gold Season', 'Up to 30% off on selected pieces', 'https://images.unsplash.com/photo-1573408301185-9146fe634ad0?w=1600&auto=format&fit=crop', 'Explore Sale', '/shop', 'hero', true, 2, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.banners (id, title, subtitle, image_url, cta_label, cta_link, position, is_active, sort_order, video_url) VALUES ('f42f6bb8-c1b5-4041-9358-e1f9f6bc780e', 'Bridal Edit', 'Curated for your forever moments', 'https://images.unsplash.com/photo-1611955167811-4711904bb9f8?w=1600&auto=format&fit=crop', 'Discover', '/category/necklaces', 'hero', true, 3, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.banners (id, title, subtitle, image_url, cta_label, cta_link, position, is_active, sort_order, video_url) VALUES ('03566ca8-a93c-4c7a-9c8f-8a2dd13b4237', 'Free Shipping Above ₹999', '', '', '', '', 'strip', true, 1, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.banners (id, title, subtitle, image_url, cta_label, cta_link, position, is_active, sort_order, video_url) VALUES ('3373fd06-43ec-4002-aaed-1c95db465885', 'Buy 2 Get 1 Free on Earrings', '', '', '', '', 'strip', true, 2, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.banners (id, title, subtitle, image_url, cta_label, cta_link, position, is_active, sort_order, video_url) VALUES ('3952c3cc-002a-4fff-a48d-3107c73156be', '365-Day Anti-Tarnish Guarantee', '', '', '', '', 'strip', true, 3, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.banners (id, title, subtitle, image_url, cta_label, cta_link, position, is_active, sort_order, video_url) VALUES ('e18b6626-beeb-4bf0-b460-c18c0a28544b', 'Infinite Elegance', 'Handcrafted pieces that whisper luxury', 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=1600&auto=format&fit=crop', 'Shop New Arrivals', '/shop', 'hero', true, 1, NULL) ON CONFLICT (id) DO NOTHING;
+
+-- Site Videos
+INSERT INTO public.site_videos (id, title, subtitle, video_url, poster_url, is_active, sort_order) VALUES ('495728f1-42cf-4f61-af3c-b8bcbef3cd9d', 'Infinite Elegance', 'The PRIORA atelier film', 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4', 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=1200&q=80', true, 0) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.site_videos (id, title, subtitle, video_url, poster_url, is_active, sort_order) VALUES ('0c529696-7303-4f10-a169-1f1400031fc9', 'For Every You', 'Daily wear, office wear, party wear', 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=1200&q=80', true, 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.site_videos (id, title, subtitle, video_url, poster_url, is_active, sort_order) VALUES ('a04baafa-6e20-477c-bafd-21bc798dfad6', 'Atelier Film — Runway Light', 'Behind the seams of an evening show', 'https://assets.mixkit.co/videos/42286/42286-720.mp4', 'https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=1200&q=80', true, 10) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.site_videos (id, title, subtitle, video_url, poster_url, is_active, sort_order) VALUES ('aa1f27e1-d1e0-4534-aa4a-24bca91e5441', 'Atelier Film — Hands & Heirlooms', 'Every piece, finished by hand', 'https://assets.mixkit.co/videos/44541/44541-720.mp4', 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=1200&q=80', true, 11) ON CONFLICT (id) DO NOTHING;
+
+-- Reviews
+INSERT INTO public.reviews (id, author, rating, body, product_id, image_url, is_active, sort_order, video_url) VALUES ('38f1da2e-d30f-4d40-b02c-038493fa4873', 'Amila M.', 5, 'They are soooo pretty. I always wished to have such earrings in real gold, but gold is sooo expensive now. So glad I stumbled into PRIORA. Thank you and keep up the awesome work.', 'd7264486-afb9-45c7-9fe3-c62c7f8504e6', NULL, true, 0, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.reviews (id, author, rating, body, product_id, image_url, is_active, sort_order, video_url) VALUES ('1a3c5221-8c0e-4ccb-aa91-46ab44815052', 'Yash K.', 5, 'My experience was amazing after purchasing this product. Price and quality is amazing — it gives a tough competition to gold products.', 'be88e3d2-e299-48bf-9b3f-2e32dc29a257', NULL, true, 1, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.reviews (id, author, rating, body, product_id, image_url, is_active, sort_order, video_url) VALUES ('1c7ae5f8-6e60-4762-938c-53d6c1be1f95', 'Deepali B.', 5, 'Its the exact product shown in the image. Great for styling in different occasions and everyday use too.', 'a6ca6c7c-9810-4276-9c02-49d2e4fff544', NULL, true, 2, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.reviews (id, author, rating, body, product_id, image_url, is_active, sort_order, video_url) VALUES ('87005179-e181-4076-8393-62c628feb785', 'Ritika S.', 5, 'The finish is stunning and it hasn''t tarnished at all after months of daily wear. Absolutely worth it.', '08e304e7-e46c-4d4f-a2f2-7273a2cb9fee', NULL, true, 3, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.reviews (id, author, rating, body, product_id, image_url, is_active, sort_order, video_url) VALUES ('83a2326d-3403-43cf-a87a-3f80e3c4c27e', 'Neha P.', 4, 'Elegant, lightweight and so comfortable. I get compliments every single time I wear it.', '2a3a95bb-63df-499a-9a7a-5480c7fa16be', NULL, true, 4, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.reviews (id, author, rating, body, product_id, image_url, is_active, sort_order, video_url) VALUES ('714671b9-583e-46ff-aa1c-79cea58c172a', 'Sana R.', 5, 'Packaging was beautiful and the piece feels premium. Will definitely order again.', '95a5eb94-f66d-403b-8d1f-1ee7f9f748f8', NULL, true, 5, NULL) ON CONFLICT (id) DO NOTHING;
+
+-- Info Pages
+INSERT INTO public.info_pages (id, slug, title, content, is_active, sort_order, hero_image_url, hero_video_url) VALUES ('d6dd28a9-24e0-4959-a85d-124fa1f116b4', 'stores', 'Stores & Services', 'Find us in-store.
+
+Our pieces are available at select partner boutiques. Enter your pincode anywhere on the site to see the nearest store and faster delivery dates.
+
+Services — Complimentary cleaning, re-polishing and gift wrapping on every order.', true, 3, NULL, NULL) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, content=EXCLUDED.content, is_active=EXCLUDED.is_active, sort_order=EXCLUDED.sort_order, hero_image_url=EXCLUDED.hero_image_url, hero_video_url=EXCLUDED.hero_video_url;
+INSERT INTO public.info_pages (id, slug, title, content, is_active, sort_order, hero_image_url, hero_video_url) VALUES ('4880853d-c636-4d80-b16d-63302b81d73f', 'about', 'About Us', 'Priora by KP offers elegant gold-plated, anti-tarnish jewellery designed for everyday wear. Our pieces are waterproof, hypoallergenic, and carefully chosen to combine style, comfort, and durability.
+
+We believe jewellery reflects your aura and confidence, making every moment feel special. ✨
+
+## Infinite Elegance
+Every piece is handcrafted with care, so it stays with you through work days, celebrations and quiet everyday moments.
+
+## Contact
+PRIORA BY KP
+Thane, Maharashtra
+Email: priorabykp@gmail.com
+Support hours: 11:00 AM – 6:00 PM (Mon–Sat)', true, 1, NULL, NULL) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, content=EXCLUDED.content, is_active=EXCLUDED.is_active, sort_order=EXCLUDED.sort_order, hero_image_url=EXCLUDED.hero_image_url, hero_video_url=EXCLUDED.hero_video_url;
+INSERT INTO public.info_pages (id, slug, title, content, is_active, sort_order, hero_image_url, hero_video_url) VALUES ('2d57417b-1b75-4e34-8c44-be377f963cde', 'support', 'Support', 'We are here to help.
+
+## Reach us
+PRIORA BY KP
+Thane, Maharashtra
+Email: priorabykp@gmail.com
+Support hours: 11:00 AM – 6:00 PM (Mon–Sat)
+
+## Order help
+Orders cannot be cancelled once placed, so please double-check your details before completing your purchase.
+
+Tracking details are shared via Shiprocket once your order is dispatched.
+
+## Damaged product
+If you receive a damaged item, email us at priorabykp@gmail.com within 24 hours of delivery with clear product photos, a clear damage video and a mandatory unboxing video (without cuts). Without unboxing video proof, claims cannot be accepted. After verification, if approved, we will arrange a replacement.', true, 2, NULL, NULL) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, content=EXCLUDED.content, is_active=EXCLUDED.is_active, sort_order=EXCLUDED.sort_order, hero_image_url=EXCLUDED.hero_image_url, hero_video_url=EXCLUDED.hero_video_url;
+INSERT INTO public.info_pages (id, slug, title, content, is_active, sort_order, hero_image_url, hero_video_url) VALUES ('58472a7f-915d-4b21-907a-a790a77df204', 'returns', 'Shipping, Return & Exchange', '## Shipping coverage
+We offer PAN India shipping.
+
+## Shipping charges
+Free shipping on orders above ₹499. Orders below ₹499 will have shipping charges applied at checkout.
+
+## Processing time
+1 to 2 business days.
+
+## Delivery timeline
+5 to 7 business days after dispatch.
+
+## Courier partner
+We ship via Shiprocket. Tracking details will be shared via Shiprocket once the order is dispatched.
+
+## Delays
+While we aim for timely delivery, delays due to courier services, weather or unforeseen circumstances are beyond our control.
+
+## Return, refund and exchange policy
+At Priora by KP, due to safety and hygiene reasons:
+We do not accept returns.
+We do not offer refunds.
+We do not offer store credit.
+We do not offer exchanges.
+
+## Damaged product policy
+If you receive a damaged item you must email us at priorabykp@gmail.com within 24 hours of delivery with clear product photos, a clear damage video and a mandatory unboxing video (without cuts). Without unboxing video proof, claims will not be accepted. After verification, if approved, we will arrange a replacement.', true, 3, NULL, NULL) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, content=EXCLUDED.content, is_active=EXCLUDED.is_active, sort_order=EXCLUDED.sort_order, hero_image_url=EXCLUDED.hero_image_url, hero_video_url=EXCLUDED.hero_video_url;
+INSERT INTO public.info_pages (id, slug, title, content, is_active, sort_order, hero_image_url, hero_video_url) VALUES ('27794220-1e44-4bab-9c02-4ac10a9538ee', 'privacy', 'Privacy Policy', 'PRIORA BY KP
+Thane, Maharashtra
+Email: priorabykp@gmail.com
+Support hours: 11:00 AM – 6:00 PM (Mon–Sat)
+
+At Priora by KP, we value your privacy and are committed to protecting your personal information. This privacy policy explains how we collect, use and safeguard the information you provide while using our website.
+
+When you place an order or contact us, we may collect basic information such as name, phone number, email, address and shipping address. This information is collected only to process your orders, arrange delivery and communicate with you regarding your purchase or inquiries.
+
+Priora by KP ensures that your personal information is kept secure and confidential. We do not sell, trade or share your personal data with third parties, except when necessary for shipping, delivery services and payment processing.
+
+Our website may use basic data such as browsing information to improve user experience and help us understand customer preferences.
+
+By using our website, you agree to the terms of this privacy policy.', true, 4, NULL, NULL) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, content=EXCLUDED.content, is_active=EXCLUDED.is_active, sort_order=EXCLUDED.sort_order, hero_image_url=EXCLUDED.hero_image_url, hero_video_url=EXCLUDED.hero_video_url;
+INSERT INTO public.info_pages (id, slug, title, content, is_active, sort_order, hero_image_url, hero_video_url) VALUES ('bebe6fce-b116-4cca-affd-a8beb76fa881', 'terms', 'Terms & Conditions', '## 1. Product information
+All jewellery is gold plated and anti-tarnish.
+Our pieces are waterproof and hypoallergenic.
+Slight colour variations may occur due to lighting and photography.
+Jewellery should still be handled with care to maintain longevity.
+
+## 2. Pricing
+All prices are listed in INR.
+Prices are inclusive of applicable taxes.
+Shipping charges are calculated separately at checkout.
+Prices will not change without prior notice.
+
+## 3. Payments
+We currently accept UPI payments only.
+Orders are confirmed only after successful payment.
+
+## 4. Order cancellation
+Orders cannot be cancelled once placed.
+Please double-check your details before completing your purchase.
+
+## 5. Intellectual property
+All content including images, logo, product names and designs of Priora by KP are owned by the brand and may not be used, copied or reproduced without written permission.
+
+## 6. Limitation of liability
+Priora by KP shall not be liable for minor variations in product appearance, delays caused by courier partners, or improper handling of jewellery after delivery.', true, 5, NULL, NULL) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, content=EXCLUDED.content, is_active=EXCLUDED.is_active, sort_order=EXCLUDED.sort_order, hero_image_url=EXCLUDED.hero_image_url, hero_video_url=EXCLUDED.hero_video_url;
+INSERT INTO public.info_pages (id, slug, title, content, is_active, sort_order, hero_image_url, hero_video_url) VALUES ('a6c06528-04ad-46eb-b224-a6b532050726', 'contact', 'Contact', 'PRIORA BY KP
+Thane, Maharashtra
+Email: priorabykp@gmail.com
+Support hours: 11:00 AM – 6:00 PM (Mon–Sat)
+
+For order help, damaged product claims or any question about our jewellery, write to us and we will reply during support hours.', true, 6, NULL, NULL) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, content=EXCLUDED.content, is_active=EXCLUDED.is_active, sort_order=EXCLUDED.sort_order, hero_image_url=EXCLUDED.hero_image_url, hero_video_url=EXCLUDED.hero_video_url;
