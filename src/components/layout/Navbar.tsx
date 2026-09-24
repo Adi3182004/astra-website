@@ -26,6 +26,9 @@ export function Navbar() {
     { name: "Services", href: "#services" },
     { name: "Portfolio", href: "#portfolio" },
     { name: "Demos", href: "#demos" },
+    { name: "Pricing", href: "#pricing" },
+    { name: "Blog", href: "#blog" },
+    { name: "FAQ", href: "#faq" },
     { name: "Contact", href: "#contact" },
   ];
 

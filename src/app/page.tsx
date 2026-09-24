@@ -2,13 +2,17 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import { ArrowUpRight, ArrowRight, Star, Quote, Sparkles, Send, Mail } from "lucide-react";
+import { ArrowUpRight, ArrowRight, Star, Quote, Mail } from "lucide-react";
 import { ClientMarquee } from "@/components/ui/client-marquee";
 import { PotuServices } from "@/components/ui/potu-services";
 import { PotuPortfolioSlider } from "@/components/ui/potu-portfolio-slider";
 import { PotuExperience } from "@/components/ui/potu-experience";
 import { PotuDemosShowcase } from "@/components/ui/potu-demos-showcase";
+import { PotuPricing } from "@/components/ui/potu-pricing";
 import { PotuTestimonials } from "@/components/ui/potu-testimonials";
+import { PotuBlog } from "@/components/ui/potu-blog";
+import { PotuFAQ } from "@/components/ui/potu-faq";
+import { PotuGallery } from "@/components/ui/potu-gallery";
 import { toast } from "sonner";
 
 export default function Home() {
@@ -193,8 +197,20 @@ export default function Home() {
       {/* MULTI-CONCEPT HOMEPAGE DEMOS (from tonatheme) */}
       <PotuDemosShowcase />
 
+      {/* PRICING PLANS SECTION */}
+      <PotuPricing />
+
       {/* CLIENT TESTIMONIALS */}
       <PotuTestimonials />
+
+      {/* BLOG & EDITORIAL INSIGHTS */}
+      <PotuBlog />
+
+      {/* FREQUENTLY ASKED QUESTIONS */}
+      <PotuFAQ />
+
+      {/* INSTAGRAM & DRIBBBLE CREATIVE FEED */}
+      <PotuGallery />
     </div>
   );
 }
