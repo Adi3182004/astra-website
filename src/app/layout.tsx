@@ -26,7 +26,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${jakarta.variable} ${outfit.variable} font-sans min-h-screen bg-background text-foreground flex flex-col justify-between antialiased transition-colors duration-300`}>
+      <body
+        suppressHydrationWarning
+        className={`${jakarta.variable} ${outfit.variable} font-sans min-h-screen bg-background text-foreground flex flex-col justify-between antialiased transition-colors duration-300`}
+      >
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
@@ -45,7 +48,7 @@ export default function RootLayout({
           {/* Main Layout Navigation */}
           <Navbar />
 
-          <main className="flex-1 w-full">{children}</main>
+          <main suppressHydrationWarning className="flex-1 w-full">{children}</main>
 
           {/* Footer & Contact Form */}
           <Footer />
