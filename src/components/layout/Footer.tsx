@@ -1,142 +1,205 @@
 "use client";
 
 import React, { useState } from "react";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { KineticFabric } from "@/components/ui/kinetic-particle-fabric";
+import { ArrowUpRight, Mail, MapPin, Phone, Send, ArrowUp } from "lucide-react";
 import { toast } from "sonner";
 
 export function Footer() {
-  const [email, setEmail] = useState("");
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    service: "UI/UX Design",
+    message: "",
+  });
 
-  const handleSubscribe = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
-    toast.success("Subscribed to Astra Private Runway Club", {
-      description: "You will receive private drop codes 48 hours prior to public release.",
+    if (!formData.name || !formData.email) return;
+    toast.success("Thank you! Your message has been received.", {
+      description: "Jon Kabir & the Potu team will review your inquiry within 24 hours.",
     });
-    setEmail("");
+    setFormData({ name: "", email: "", service: "UI/UX Design", message: "" });
+  };
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
-    <footer className="relative w-full border-t border-border/80 pt-20 pb-12 text-foreground overflow-hidden">
-      {/* Dynamic 3D Tensor Physics Particle Mesh Background */}
-      <KineticFabric className="opacity-90 dark:opacity-80" />
+    <footer id="contact" className="relative w-full bg-[#111114] text-white pt-24 pb-12 border-t border-neutral-800 overflow-hidden">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Massive Callout Header */}
+        <div className="mb-20 pb-16 border-b border-neutral-800 flex flex-col lg:flex-row lg:items-end justify-between gap-8">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#FF5E14]/15 border border-[#FF5E14]/30 text-[#FF5E14] text-xs font-mono font-semibold uppercase tracking-wider mb-4">
+              <span>✦</span> START A PROJECT
+            </div>
+            <h2 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white leading-tight max-w-2xl">
+              Let's Work <br />
+              <span className="text-[#FF5E14]">Together.</span>
+            </h2>
+          </div>
 
-      {/* Ambient Gradient Softeners for pristine text readability */}
-      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/75 to-transparent pointer-events-none" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-gradient-to-b from-[#8D43F4]/15 to-transparent blur-3xl pointer-events-none" />
+          <p className="max-w-md text-neutral-400 text-sm sm:text-base leading-relaxed">
+            Have an ambitious project or want to take your brand to the next level? Fill in the form or send a direct email.
+          </p>
+        </div>
 
-      {/* Main Foreground Content */}
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
-        {/* Main Footer Links & Newsletter */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-10 py-4">
-          {/* Brand Info */}
-          <div className="md:col-span-2 space-y-4">
-            <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-[#8D43F4] to-cyan-400 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-[#8D43F4]/30">
-                A
+        {/* Form and Contact Details Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 mb-20">
+          {/* Direct Contact Cards */}
+          <div className="lg:col-span-5 space-y-6">
+            <div className="p-8 rounded-[32px] bg-[#18181D] border border-neutral-800 space-y-6">
+              <h3 className="text-xl font-bold text-white tracking-tight">
+                Studio Headquarters
+              </h3>
+
+              <div className="space-y-4 text-sm text-neutral-300">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-900 text-[#FF5E14] flex-shrink-0">
+                    <Mail className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-neutral-500 font-mono uppercase">Direct Email</div>
+                    <a href="mailto:contact@potu.studio" className="font-semibold text-white hover:text-[#FF5E14] transition-colors">
+                      contact@potu.studio
+                    </a>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-900 text-[#FF5E14] flex-shrink-0">
+                    <Phone className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-neutral-500 font-mono uppercase">Phone / WhatsApp</div>
+                    <span className="font-semibold text-white">+1 (555) 839-2041</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-900 text-[#FF5E14] flex-shrink-0">
+                    <MapPin className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-neutral-500 font-mono uppercase">Studio Locations</div>
+                    <span className="font-semibold text-white">SoHo, New York & Shibuya, Tokyo</span>
+                  </div>
+                </div>
               </div>
-              <span className="font-extrabold text-2xl sm:text-3xl tracking-tighter">ASTRA</span>
             </div>
-            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-sm">
-              Transcendent street-couture and hyper-engineered footwear. Merging artisanal raw silk tailoring with aerodynamic kinetic physics.
-            </p>
-            <div className="text-xs font-mono tracking-wider text-muted-foreground">
-              PARIS · TOKYO · NEW YORK · MILAN
+
+            {/* Social Media Pills */}
+            <div className="p-8 rounded-[32px] bg-[#18181D] border border-neutral-800">
+              <h4 className="text-xs font-mono uppercase tracking-widest text-[#FF5E14] font-semibold mb-4">
+                Connect Globally
+              </h4>
+              <div className="flex flex-wrap gap-2.5 font-mono text-xs">
+                {["Dribbble", "Behance", "LinkedIn", "Instagram", "GitHub", "Twitter/X"].map((soc, i) => (
+                  <span
+                    key={i}
+                    className="px-3.5 py-2 rounded-full bg-neutral-900 text-neutral-300 hover:text-white hover:bg-[#FF5E14] border border-neutral-800 transition-all cursor-pointer"
+                  >
+                    {soc}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Collections */}
-          <div>
-            <h4 className="text-xs font-mono tracking-widest uppercase text-accent font-semibold mb-4">
-              Collections
-            </h4>
-            <ul className="space-y-2.5 text-xs sm:text-sm text-muted-foreground">
-              <li>
-                <Link href="/shop?category=footwear" className="hover:text-foreground transition-colors">
-                  Kinetic Sneakers
-                </Link>
-              </li>
-              <li>
-                <Link href="/shop?category=apparel" className="hover:text-foreground transition-colors">
-                  Raw Silk Hoodies
-                </Link>
-              </li>
-              <li>
-                <Link href="/shop?category=outerwear" className="hover:text-foreground transition-colors">
-                  Monolith Trench Coats
-                </Link>
-              </li>
-              <li>
-                <Link href="/shop?category=accessories" className="hover:text-foreground transition-colors">
-                  Leather Crossbodies
-                </Link>
-              </li>
-            </ul>
-          </div>
+          {/* Interactive Inquiry Form */}
+          <div className="lg:col-span-7">
+            <form
+              onSubmit={handleSubmit}
+              className="p-8 sm:p-12 rounded-[36px] bg-[#18181D] border border-neutral-800 space-y-6 shadow-2xl"
+            >
+              <h3 className="text-2xl font-bold text-white tracking-tight">
+                Send a Message
+              </h3>
 
-          {/* Client Concierge */}
-          <div>
-            <h4 className="text-xs font-mono tracking-widest uppercase text-accent font-semibold mb-4">
-              Client Concierge
-            </h4>
-            <ul className="space-y-2.5 text-xs sm:text-sm text-muted-foreground">
-              <li>
-                <Link href="/orders" className="hover:text-foreground transition-colors">
-                  Track Delivery
-                </Link>
-              </li>
-              <li>
-                <Link href="/cart" className="hover:text-foreground transition-colors">
-                  Bag & Checkout
-                </Link>
-              </li>
-              <li>
-                <Link href="/wishlist" className="hover:text-foreground transition-colors">
-                  Private Wishlist
-                </Link>
-              </li>
-              <li>
-                <a href="#faq" className="hover:text-foreground transition-colors">
-                  VIP FAQ & Sizing
-                </a>
-              </li>
-            </ul>
-          </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-neutral-400 mb-2 font-semibold">
+                    Your Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Jon Kabir"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full h-12 px-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white text-sm focus:outline-none focus:border-[#FF5E14] transition-colors"
+                  />
+                </div>
 
-          {/* VIP Drop Access */}
-          <div>
-            <h4 className="text-xs font-mono tracking-widest uppercase text-accent font-semibold mb-3">
-              Private Drop Access
-            </h4>
-            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-              Receive private invitation codes for limited drop sneakers 48 hours prior to public release.
-            </p>
-            <form onSubmit={handleSubscribe} className="space-y-2.5">
-              <Input
-                type="email"
-                placeholder="vip@astra.luxury"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="h-10 text-xs bg-background/80 backdrop-blur-md"
-                required
-              />
-              <Button type="submit" variant="violet" size="sm" className="w-full font-semibold">
-                Join Runway Club
-              </Button>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-neutral-400 mb-2 font-semibold">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="jon@company.com"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full h-12 px-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white text-sm focus:outline-none focus:border-[#FF5E14] transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-neutral-400 mb-2 font-semibold">
+                  Service Needed
+                </label>
+                <select
+                  value={formData.service}
+                  onChange={(e) => setFormData({ ...formData, service: e.target.value })}
+                  className="w-full h-12 px-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white text-sm focus:outline-none focus:border-[#FF5E14] transition-colors"
+                >
+                  <option value="UI/UX Design">UI/UX & Product Design</option>
+                  <option value="Branding & Identity">Branding & Identity Direction</option>
+                  <option value="Full-Stack Web Development">Full-Stack Next.js Web Development</option>
+                  <option value="Mobile App Development">Mobile App Development</option>
+                  <option value="3D Motion & WebGL">3D Motion & WebGL Experience</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-neutral-400 mb-2 font-semibold">
+                  Project Details
+                </label>
+                <textarea
+                  rows={4}
+                  placeholder="Tell us about your project goals, timelines, and scope..."
+                  value={formData.message}
+                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                  className="w-full p-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white text-sm focus:outline-none focus:border-[#FF5E14] transition-colors resize-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full h-14 rounded-full bg-[#FF5E14] hover:bg-[#FF5E14]/90 text-white font-bold font-mono text-sm uppercase tracking-wider shadow-xl shadow-[#FF5E14]/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
+              >
+                Send Inquiry Now <ArrowUpRight className="h-5 w-5" />
+              </button>
             </form>
           </div>
         </div>
 
-        {/* Bottom Rights */}
-        <div className="pt-8 border-t border-border/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
-          <p>© 2026 ASTRA COUTURE & FOOTWEAR. All rights reserved.</p>
+        {/* Bottom Bar */}
+        <div className="pt-8 border-t border-neutral-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-neutral-500 font-mono">
+          <p>© 2026 POTU CREATIVE STUDIO. All rights reserved.</p>
+
           <div className="flex items-center gap-6">
-            <span className="hover:text-foreground cursor-pointer transition-colors">Privacy Policy</span>
-            <span className="hover:text-foreground cursor-pointer transition-colors">Terms of Service</span>
-            <span className="hover:text-foreground cursor-pointer transition-colors">NFC Verification</span>
+            <span className="hover:text-neutral-300 cursor-pointer">Privacy Policy</span>
+            <span className="hover:text-neutral-300 cursor-pointer">Terms of Service</span>
+            <button
+              onClick={scrollToTop}
+              className="flex items-center gap-1.5 text-[#FF5E14] hover:underline cursor-pointer"
+            >
+              Back To Top <ArrowUp className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       </div>

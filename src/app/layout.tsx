@@ -1,22 +1,22 @@
 import type { Metadata } from "next";
-import { Inter, Outfit } from "next/font/google";
+import { Outfit, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { CartProvider } from "@/context/CartContext";
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
-import { CartDrawer } from "@/components/layout/CartDrawer";
-import { AuthCardModal } from "@/components/ui/auth-card";
+import { PotuPreloader } from "@/components/ui/potu-preloader";
+import { MousePointer } from "@/components/ui/mouse-pointer";
+import { DemoSwitch } from "@/components/ui/demo-switch";
 import { Toaster } from "sonner";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-display" });
+const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "ASTRA | Luxury Street-Couture & Kinetic Footwear",
+  title: "Potu | Creative UI/UX Designer & Portfolio Template",
   description:
-    "Transcendent street-couture, raw silk tailoring, and hyper-engineered kinetic sneakers. Discover the 2026 Astra runway collection.",
-  keywords: ["Astra", "Luxury Footwear", "Sneakers", "Raw Silk Hoodie", "Streetwear", "Haute Couture"],
+    "High-end personal portfolio and creative agency template. Showcasing UI/UX design, branding, mobile apps, and full-stack web engineering.",
+  keywords: ["Potu", "Portfolio", "UI/UX Designer", "Creative Agency", "Branding", "Next.js Template"],
 };
 
 export default function RootLayout({
@@ -26,21 +26,32 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${outfit.variable} font-sans min-h-screen bg-background text-foreground flex flex-col justify-between`}>
+      <body className={`${jakarta.variable} ${outfit.variable} font-sans min-h-screen bg-background text-foreground flex flex-col justify-between antialiased transition-colors duration-300`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
           enableSystem={false}
           disableTransitionOnChange
         >
-          <CartProvider>
-            <Navbar />
-            <main className="flex-1 w-full">{children}</main>
-            <Footer />
-            <CartDrawer />
-            <AuthCardModal />
-            <Toaster position="bottom-right" richColors theme="system" />
-          </CartProvider>
+          {/* Preloader animation */}
+          <PotuPreloader />
+
+          {/* Custom Mouse Cursor Follower */}
+          <MousePointer />
+
+          {/* Floating Theme Switcher Widget */}
+          <DemoSwitch />
+
+          {/* Main Layout Navigation */}
+          <Navbar />
+
+          <main className="flex-1 w-full">{children}</main>
+
+          {/* Footer & Contact Form */}
+          <Footer />
+
+          {/* Global Toast Notifications */}
+          <Toaster position="bottom-right" richColors theme="system" />
         </ThemeProvider>
       </body>
     </html>
