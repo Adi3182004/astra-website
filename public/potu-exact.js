@@ -1,0 +1,2 @@
+(function rS(e,t,n=!1){const o={};e.currentScript&&e.currentScript.remove(),r(e.body),Object.keys(o).forEach(l=>{const c=o[l],d=l.split(".");if(d.length>1){const h=d.slice(0,-1).join("."),m=o[h];m&&c.parentElement!==m&&m.appendChild(c)}}),n||e.querySelectorAll("["+t+"]").forEach(l=>l.removeAttribute(t));function r(l){const c=l.getAttribute(t);c&&(o[c]=l),Array.from(l.children).forEach(r)}})(document, "data-sf-nesting-track-id");
+
