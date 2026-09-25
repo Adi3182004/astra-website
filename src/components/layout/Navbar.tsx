@@ -2,32 +2,34 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Menu, X, Sun, Moon } from "lucide-react";
 import { useTheme } from "next-themes";
+import { ShoppingBag, Sun, Moon, Menu, X, ArrowUpRight, Flame } from "lucide-react";
 
 export function Navbar() {
+  const [mounted, setMounted] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
+      if (window.scrollY > 40) {
+        setScrolled(true);
+      } else {
+        setScrolled(false);
+      }
     };
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const navLinks = [
-    { name: "Home", href: "#hero" },
-    { name: "About", href: "#about" },
-    { name: "Services", href: "#services" },
-    { name: "Portfolio", href: "#portfolio" },
-    { name: "Demos", href: "#demos" },
-    { name: "Pricing", href: "#pricing" },
-    { name: "Blog", href: "#blog" },
+    { name: "Collection", href: "#collection" },
+    { name: "Silhouettes", href: "#categories" },
+    { name: "Technology", href: "#technology" },
+    { name: "Features", href: "#features" },
+    { name: "Reviews", href: "#reviews" },
     { name: "FAQ", href: "#faq" },
     { name: "Contact", href: "#contact" },
   ];
@@ -36,86 +38,87 @@ export function Navbar() {
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled
-          ? "bg-background/85 backdrop-blur-xl border-b border-border shadow-sm py-3.5"
+          ? "bg-background/90 backdrop-blur-xl border-b border-border py-3 shadow-md"
           : "bg-transparent py-5"
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-1 group">
-            <span className="text-2xl sm:text-3xl font-black tracking-tight font-sans text-foreground">
-              Potu<span className="text-[#FF5E14]">.</span>
-            </span>
+          {/* Brand Logo (ASTRA / POTU Luxury Footwear) */}
+          <Link href="/" className="flex items-center gap-2 group">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#FF5E14] text-white shadow-lg shadow-[#FF5E14]/30 group-hover:scale-105 transition-all">
+              <span className="font-black text-xl tracking-tighter">A</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="font-black text-xl tracking-widest uppercase font-sans text-foreground">
+                ASTRA
+              </span>
+              <span className="text-[9px] font-mono tracking-widest text-[#FF5E14] font-bold -mt-1">
+                KINETIC FOOTWEAR
+              </span>
+            </div>
           </Link>
 
           {/* Desktop Navigation Links */}
-          <nav className="hidden md:flex items-center gap-8 text-sm font-semibold font-mono uppercase tracking-wider">
-            {navLinks.map((link, idx) => (
+          <nav className="hidden lg:flex items-center gap-8">
+            {navLinks.map((link) => (
               <a
-                key={idx}
+                key={link.name}
                 href={link.href}
-                className="text-muted-foreground hover:text-[#FF5E14] transition-colors duration-200"
+                className="text-xs font-mono font-bold uppercase tracking-wider text-muted-foreground hover:text-[#FF5E14] transition-colors"
               >
                 {link.name}
               </a>
             ))}
           </nav>
 
-          {/* Right Actions */}
+          {/* Action Group */}
           <div className="flex items-center gap-3">
+            {/* Theme Toggle Button */}
             {mounted && (
               <button
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card hover:bg-muted text-foreground transition-colors"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-card border border-border text-foreground hover:text-[#FF5E14] shadow-sm transition-colors"
                 title="Toggle Theme"
               >
                 {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </button>
             )}
 
-            {/* CTA Pill Button */}
+            {/* Shopping Bag CTA */}
             <a
-              href="#contact"
-              className="hidden sm:inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#FF5E14] hover:bg-[#FF5E14]/90 text-white text-xs sm:text-sm font-bold font-mono uppercase tracking-wider shadow-lg shadow-[#FF5E14]/25 hover:shadow-xl hover:shadow-[#FF5E14]/35 transition-all duration-300 hover:scale-105"
+              href="#collection"
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#FF5E14] hover:bg-[#FF5E14]/90 text-white text-xs font-bold font-mono uppercase tracking-wider shadow-lg shadow-[#FF5E14]/30 hover:scale-105 transition-all"
             >
-              Let's Talk <ArrowUpRight className="h-4 w-4" />
+              <ShoppingBag className="h-4 w-4" /> Shop Drops
             </a>
 
-            {/* Mobile Menu Toggle Button */}
+            {/* Mobile Menu Hamburger Toggler */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-foreground"
+              className="flex lg:hidden h-10 w-10 items-center justify-center rounded-full bg-card border border-border text-foreground"
+              title="Toggle Menu"
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           </div>
         </div>
 
-        {/* Mobile Navigation Drawer */}
+        {/* Mobile Dropdown Menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden mt-4 p-6 rounded-3xl bg-card border border-border shadow-2xl space-y-4">
-            <nav className="flex flex-col space-y-3 font-mono text-sm font-semibold uppercase">
-              {navLinks.map((link, idx) => (
+          <div className="lg:hidden mt-4 p-6 rounded-3xl bg-card border border-border shadow-2xl space-y-4 animate-in fade-in-0 slide-in-from-top-4">
+            <nav className="flex flex-col space-y-3">
+              {navLinks.map((link) => (
                 <a
-                  key={idx}
+                  key={link.name}
                   href={link.href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="px-3 py-2 rounded-xl text-foreground hover:bg-muted hover:text-[#FF5E14] transition-colors"
+                  className="text-sm font-mono font-bold uppercase tracking-wider text-foreground hover:text-[#FF5E14] py-2 border-b border-border/50"
                 >
                   {link.name}
                 </a>
               ))}
             </nav>
-            <div className="pt-4 border-t border-border">
-              <a
-                href="#contact"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full py-3 rounded-full bg-[#FF5E14] text-white text-sm font-bold font-mono uppercase"
-              >
-                Let's Talk <ArrowUpRight className="h-4 w-4" />
-              </a>
-            </div>
           </div>
         )}
       </div>

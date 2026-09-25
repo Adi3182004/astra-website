@@ -2,6 +2,13 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Outfit } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PotuPreloader } from "@/components/ui/potu-preloader";
+import { MousePointer } from "@/components/ui/mouse-pointer";
+import { DemoSwitch } from "@/components/ui/demo-switch";
+import { ScrollToTop } from "@/components/ui/scroll-to-top";
+import { Navbar } from "@/components/layout/Navbar";
+import { Footer } from "@/components/layout/Footer";
+import { ExtensionCleaner } from "@/components/ui/extension-cleaner";
 import { Toaster } from "sonner";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -17,9 +24,12 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Potu - Creative Personal Portfolio & Agency HTML5 Template",
-  description: "Potu is a modern, high-performance UI/UX designer and creative agency portfolio template.",
+  title: "ASTRA | Luxury Kinetic Footwear & Street-Couture",
+  description: "ASTRA is a pioneer in aerospace carbon-fiber running shoes, luxury high-top sneakers, and kinetic streetwear footwear.",
 };
+
+import { CartProvider } from "@/context/CartContext";
+import { WishlistProvider } from "@/context/WishlistContext";
 
 export default function RootLayout({
   children,
@@ -35,7 +45,7 @@ export default function RootLayout({
       </head>
       <body
         suppressHydrationWarning
-        className={`${jakarta.variable} ${outfit.variable} font-sans min-h-screen bg-transparent text-foreground antialiased`}
+        className={`${jakarta.variable} ${outfit.variable} font-sans min-h-screen bg-background text-foreground flex flex-col justify-between antialiased transition-colors duration-300`}
       >
         <ThemeProvider
           attribute="class"
@@ -43,12 +53,35 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <main suppressHydrationWarning className="w-full min-h-screen">
-            {children}
-          </main>
+          <CartProvider>
+            <WishlistProvider>
+              {/* Pitch-Black Minimalist Letter-Flip Preloader */}
+              <PotuPreloader />
 
-          {/* Global Toast Notifications */}
-          <Toaster position="bottom-right" richColors theme="system" />
+              {/* Custom Mouse Cursor Follower */}
+              <MousePointer />
+
+              {/* Floating Theme Switcher Widget */}
+              <DemoSwitch />
+
+              {/* Circular Progress Scroll-To-Top Button */}
+              <ScrollToTop />
+
+              {/* Automatic Extension & Injected Widget Purge */}
+              <ExtensionCleaner />
+
+              {/* Main Navigation */}
+              <Navbar />
+
+              <main suppressHydrationWarning className="flex-1 w-full">{children}</main>
+
+              {/* Footer & VIP Drop Form */}
+              <Footer />
+
+              {/* Global Toast Notifications */}
+              <Toaster position="bottom-right" richColors theme="system" />
+            </WishlistProvider>
+          </CartProvider>
         </ThemeProvider>
       </body>
     </html>
